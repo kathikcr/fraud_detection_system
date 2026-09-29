@@ -10,10 +10,10 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
-from Src.dashboard import dashboard_shell
+from Src.dashboard import dashboard_shell, get_overview
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, StrictFloat, StrictInt, StrictStr, model_validator
@@ -190,6 +190,22 @@ def create_app(
     def dashboard():
         """Serve the directly accessible local dashboard shell."""
         return dashboard_shell()
+
+    @application.get("/dashboard/overview", include_in_schema=False)
+    def dashboard_overview(dataset: Literal["dataset1", "dataset2"] = Query(default="dataset2")):
+        """Return cached, dataset-specific descriptive analytics for the overview."""
+        try:
+            return get_overview(dataset)
+        except Exception as exc:
+            LOGGER.warning(
+                "dashboard_overview_unavailable",
+                extra={"event_type": "dashboard_overview_unavailable", "dataset": dataset,
+                       "error_type": type(exc).__name__},
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="This dataset is unavailable or failed validation. Check its local configuration and try again.",
+            ) from None
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, exc: RequestValidationError):

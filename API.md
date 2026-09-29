@@ -1,10 +1,11 @@
 # HTTP API (incremental)
 
-The local app currently serves a dashboard shell and three API routes:
+The local app currently serves the dashboard and four API routes:
 
 | Route | Purpose | Success response |
 |---|---|---|
 | `GET /` | Open the login-free local dashboard shell | `200` HTML page |
+| `GET /dashboard/overview?dataset=dataset1` or `dataset2` | Load independent cached KPIs and chart data for one validated dataset | `200` JSON overview |
 | `GET /health` | Confirm the API process can serve requests | `200 {"status":"ok"}` |
 | `POST /predict` | Score one raw Dataset 2 transaction | `200` prediction response |
 | `POST /investigate` | Return one case's prediction and local SHAP explanation | `200` investigation response |
@@ -33,5 +34,7 @@ python -m uvicorn Src.api:app --host 127.0.0.1 --port 8000
 ```
 
 Then open `http://127.0.0.1:8000/` for the dashboard shell, request `http://127.0.0.1:8000/health`, post one transaction to `http://127.0.0.1:8000/predict`, or submit a case to `http://127.0.0.1:8000/investigate`. Generated API docs are disabled. This project is for local development, demonstration, portfolio presentation, and academic use. User authentication, accounts, sessions, access control, rate limiting, and deployment infrastructure are outside the current scope; the local dashboard is directly accessible.
+
+The overview defaults to Dataset 2 and accepts only `dataset1` or `dataset2`. Summaries use validated loaders and are cached for the process lifetime. Dataset 1 analytics use the joined transaction table, exclude personal fields, and are labelled synthetic. Dataset 2 `Time` is summarized as elapsed-time intervals, and `Amount` is shown in source units without a currency assumption. High-risk model counts are unavailable in this view because the overview displays observed target labels rather than recomputing model scores.
 
 The API uses FastAPI and Uvicorn; route tests use FastAPI's `TestClient` with HTTPX. See `tests/api/`.

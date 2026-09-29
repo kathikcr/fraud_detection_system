@@ -2,7 +2,126 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
+import numpy as np
+import pandas as pd
 from fastapi.responses import HTMLResponse
+
+from Src.dataset1_integration import load_dataset1_transaction_table
+from Src.ingestion import load_dataset2
+
+DATASET_IDS = ("dataset1", "dataset2")
+
+
+class DashboardDataError(RuntimeError):
+    """Raised when local dataset analytics are not available."""
+
+
+@lru_cache(maxsize=2)
+def get_overview(dataset_id: str) -> dict:
+    """Load and cache an independent, PII-free overview for one dataset."""
+    if dataset_id == "dataset1":
+        frame = load_dataset1_transaction_table().frame
+        target, amount = "FraudIndicator", "Amount"
+        label = "Synthetic Financial Fraud Dataset"
+        synthetic = True
+        category_column = "Category"
+        time_column = "Timestamp"
+        time_kind = "calendar"
+        limitation = "Synthetic fraud labels are randomly generated and do not represent real financial behavior."
+    elif dataset_id == "dataset2":
+        frame = load_dataset2().frame
+        target, amount = "Class", "Amount"
+        label = "Credit Card Fraud Dataset"
+        synthetic = False
+        category_column = None
+        time_column = "Time"
+        time_kind = "elapsed"
+        limitation = "V1–V28 are anonymized PCA components. Time is elapsed seconds, not a calendar timestamp."
+    else:
+        raise DashboardDataError("Unknown dataset selection")
+
+    if frame.empty or target not in frame or amount not in frame:
+        raise DashboardDataError("The selected dataset has no usable transaction rows")
+    y = pd.to_numeric(frame[target], errors="coerce")
+    values = pd.to_numeric(frame[amount], errors="coerce")
+    valid = y.isin((0, 1)) & values.notna() & np.isfinite(values)
+    if not bool(valid.all()):
+        raise DashboardDataError("The selected dataset contains invalid target or amount values")
+    fraud_mask = y.eq(1)
+    fraud_count = int(fraud_mask.sum())
+    rows = len(frame)
+
+    overview = {
+        "dataset": {"id": dataset_id, "label": label, "synthetic": synthetic, "limitation": limitation},
+        "kpis": {
+            "total_transactions": rows,
+            "fraud_transactions": fraud_count,
+            "fraud_rate": fraud_count / rows,
+            "total_amount": float(values.sum()),
+            "average_amount": float(values.mean()),
+            "high_risk_transactions": None,
+        },
+        "fraud_split": {"legitimate": int((~fraud_mask).sum()), "fraud": fraud_count},
+        "trend": _trend(frame, y, time_column, time_kind),
+        "amount_distribution": _amount_distribution(values, fraud_mask),
+        "category_fraud": _category_summary(frame, y, category_column),
+        "amount_note": "Source amount units; no currency is assumed.",
+    }
+    return overview
+
+
+def clear_overview_cache() -> None:
+    """Clear local dataset summaries (primarily useful after data refresh)."""
+    get_overview.cache_clear()
+
+
+def _trend(frame: pd.DataFrame, target: pd.Series, column: str, kind: str) -> list[dict]:
+    times = frame[column]
+    if kind == "calendar":
+        parsed = pd.to_datetime(times, errors="coerce")
+        if parsed.isna().any():
+            raise DashboardDataError("Dataset 1 contains timestamps that cannot be summarized")
+        work = pd.DataFrame({"bucket": parsed.dt.floor("D").dt.strftime("%Y-%m-%d"), "fraud": target})
+        grouped = work.groupby("bucket", sort=True)["fraud"].agg(total="size", fraud="sum")
+        return [{"label": str(label), "total": int(row.total), "fraud": int(row.fraud)} for label, row in grouped.iterrows()]
+
+    numeric = pd.to_numeric(times, errors="coerce")
+    if numeric.isna().any() or not np.isfinite(numeric).all() or (numeric < 0).any():
+        raise DashboardDataError("Dataset 2 elapsed time values are invalid")
+    bucket = (numeric // 7200).astype(int)
+    work = pd.DataFrame({"bucket": bucket, "fraud": target})
+    grouped = work.groupby("bucket", sort=True)["fraud"].agg(total="size", fraud="sum")
+    return [
+        {"label": f"{int(index) * 2:02d}–{int(index) * 2 + 2:02d} h", "total": int(row.total), "fraud": int(row.fraud)}
+        for index, row in grouped.iterrows()
+    ]
+
+
+def _amount_distribution(values: pd.Series, fraud_mask: pd.Series) -> dict:
+    upper = float(values.quantile(0.95))
+    if not np.isfinite(upper) or upper <= 0:
+        upper = float(values.max()) if float(values.max()) > 0 else 1.0
+    edges = np.linspace(0, upper, 11)
+    clipped = values.clip(upper=upper)
+    bins = np.minimum(np.digitize(clipped, edges[1:-1], right=False), 9)
+    fraud = np.bincount(bins[fraud_mask.to_numpy()], minlength=10)
+    legitimate = np.bincount(bins[(~fraud_mask).to_numpy()], minlength=10)
+    labels = [f"{edges[i]:g}–{edges[i + 1]:g}" for i in range(10)]
+    labels[-1] = f"{edges[-2]:g}+"
+    return {"labels": labels, "legitimate": legitimate.astype(int).tolist(), "fraud": fraud.astype(int).tolist(), "upper_percentile": 95}
+
+
+def _category_summary(frame: pd.DataFrame, target: pd.Series, column: str | None) -> list[dict]:
+    if column is None or column not in frame:
+        return []
+    work = pd.DataFrame({"category": frame[column].astype("string").fillna("Unknown"), "fraud": target})
+    grouped = work.groupby("category", dropna=False, sort=True)["fraud"].agg(total="size", fraud="sum")
+    return [
+        {"category": str(category), "total": int(row.total), "fraud": int(row.fraud), "fraud_rate": float(row.fraud / row.total)}
+        for category, row in grouped.iterrows()
+    ]
 
 
 def dashboard_shell() -> HTMLResponse:
@@ -20,6 +139,7 @@ _DASHBOARD_HTML = """<!doctype html>
   <style>
     :root { color-scheme: dark; --bg:#101821; --panel:#18232e; --panel2:#1d2a36; --line:#2a3946; --muted:#91a0ad; --text:#e9f0f4; --mint:#67e0b1; --blue:#80b8ff; --amber:#f3bd66; }
     * { box-sizing:border-box; }
+    [hidden] { display:none !important; }
     body { margin:0; background:radial-gradient(ellipse at 72% -15%,#1e3841 0,transparent 42%),var(--bg); color:var(--text); font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
     a { color:inherit; text-decoration:none; }
     .app { min-height:100vh; display:grid; grid-template-columns:248px minmax(0,1fr); }
@@ -45,6 +165,7 @@ _DASHBOARD_HTML = """<!doctype html>
     .sub { color:var(--muted);margin:0;max-width:600px;font-size:14px; }
     .selector { padding:10px 13px;color:#b7c5cd;background:var(--panel);border:1px solid var(--line);border-radius:9px;font-size:12px;white-space:nowrap; }
     .selector b { color:var(--text);font-weight:600; }
+    select { margin-left:8px;padding:7px 25px 7px 9px;border-radius:7px;border:1px solid #435462;background:#18232e;color:var(--text);font:inherit;max-width:235px; }
     .notice { border:1px solid #3b564e;background:linear-gradient(100deg,#1b332e,#1a2a30);border-radius:13px;padding:17px 19px;display:flex;align-items:flex-start;gap:13px;margin:4px 0 22px; }
     .notice-icon { width:28px;height:28px;display:grid;place-items:center;border-radius:9px;color:var(--mint);background:#28483e;flex:0 0 auto; }
     .notice strong { display:block;margin-bottom:3px;font-size:13px; }
@@ -57,8 +178,34 @@ _DASHBOARD_HTML = """<!doctype html>
     .placeholder { height:33px;margin-top:18px;border-radius:6px;background:repeating-linear-gradient(135deg,#22313d,#22313d 8px,#1e2b36 8px,#1e2b36 16px);opacity:.7; }
     .bottom { margin-top:22px;padding:16px 18px;border:1px solid var(--line);border-radius:12px;color:var(--muted);font-size:12px;display:flex;justify-content:space-between;gap:20px; }
     .bottom a { color:var(--blue); }
+    .kpis { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0 0 17px; }
+    .kpi { min-width:0;padding:16px;background:linear-gradient(145deg,#1a2631,#17222c);border:1px solid var(--line);border-radius:12px; }
+    .kpi-label { color:var(--muted);font-size:11px; }
+    .kpi-value { margin-top:9px;font-size:clamp(18px,2.2vw,26px);font-weight:700;letter-spacing:-.6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .kpi-note { color:#84949f;font-size:10px;margin-top:5px; }
+    .charts { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px; }
+    .chart-card { min-width:0;background:linear-gradient(145deg,#1a2631,#17222c);border:1px solid var(--line);border-radius:13px;padding:18px; }
+    .chart-card.wide { grid-column:span 2; }
+    .chart-title { display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:650;font-size:13px; }
+    .chart-caption { color:var(--muted);font-size:11px;margin:4px 0 13px; }
+    .chart { display:block;width:100%;height:220px; }
+    .bar-list { display:grid;gap:14px;padding:9px 0; }
+    .bar-label { display:flex;justify-content:space-between;gap:12px;color:#c4d0d7;font-size:11px;margin-bottom:6px; }
+    .track { height:8px;background:#2a3946;border-radius:10px;overflow:hidden; }
+    .fill { height:100%;background:var(--mint);border-radius:10px; }
+    .fill.fraud { background:var(--amber); }
+    .legend { display:flex;gap:15px;color:var(--muted);font-size:10px;margin-top:9px; }
+    .legend i { display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;background:var(--mint); }
+    .legend .fraud-key { background:var(--amber); }
+    .state { color:var(--muted);font-size:12px;padding:23px 8px;text-align:center; }
+    .dataset-note { border-color:#4c4536;background:#29271f; }
+    .dataset-note .notice-icon { color:var(--amber);background:#493b25; }
+    .planned { margin-top:25px; }
+    .planned h2 { font-size:15px;margin:0 0 12px; }
     section { scroll-margin-top:20px; }
+    @media(max-width:1000px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
     @media(max-width:850px){.app{grid-template-columns:76px minmax(0,1fr)}aside{padding:20px 10px}.brand{justify-content:center;padding:0 0 28px}.brand-name,.eyebrow,.nav-label,.side-note{display:none}nav a{justify-content:center;padding:12px 6px}.grid{grid-template-columns:1fr 1fr}}
+    @media(max-width:650px){.charts{grid-template-columns:1fr}.chart-card.wide{grid-column:span 1}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media(max-width:560px){.app{display:block}aside{border-right:0;border-bottom:1px solid var(--line);padding:10px 14px}.brand{display:none}nav{display:flex;overflow-x:auto}nav a{flex:0 0 auto;padding:9px 11px}.nav-label{display:inline}.hero{align-items:flex-start;flex-direction:column;padding-top:27px}.grid{grid-template-columns:1fr}.card{min-height:125px}.topline{padding-bottom:16px}.bottom{flex-direction:column}}
   </style>
 </head>
@@ -79,13 +226,30 @@ _DASHBOARD_HTML = """<!doctype html>
       <div class="topline"><div class="crumb">Workspace <span aria-hidden="true">/</span> Overview</div><div class="local"><span class="dot"></span> Local environment</div></div>
       <header class="hero">
         <div><div class="kicker">Fraud analytics</div><h1>See the signal.<br>Understand the risk.</h1><p class="sub">A focused workspace for transaction patterns, model performance, and explainable fraud investigation.</p></div>
-        <div class="selector"><b>Dataset</b> &nbsp; Choose in the next dashboard phase&nbsp;⌄</div>
+        <label class="selector"><b>Dataset</b><select id="dataset-select" aria-label="Select dataset"><option value="dataset2">Credit Card Fraud Dataset</option><option value="dataset1">Synthetic Financial Fraud Dataset</option></select></label>
       </header>
-      <div class="notice"><div class="notice-icon">✳</div><div><strong>Dashboard foundation is ready</strong><p>The local application shell and navigation are in place. Analytics pages are being added incrementally; no sample KPI values are shown as live results.</p></div></div>
-      <div class="grid">
-        <section class="card" id="performance"><div class="card-head">Model performance <span class="tag">NEXT PHASE</span></div><p>Precision, recall, PR-AUC, ROC-AUC, threshold behavior, and confusion matrices for validated model results.</p><div class="placeholder" aria-hidden="true"></div></section>
+      <div id="dataset-notice" class="notice" hidden><div class="notice-icon">!</div><div><strong>Synthetic sample data</strong><p>Fraud labels in this dataset are randomly generated. These charts are for integration and UI demonstration only.</p></div></div>
+      <div id="load-state" class="state" role="status" aria-live="polite">Loading validated dataset summary…</div>
+      <div class="kpis" id="kpis" hidden>
+        <article class="kpi"><div class="kpi-label">Total transactions</div><div class="kpi-value" id="kpi-total">—</div><div class="kpi-note">Validated source rows</div></article>
+        <article class="kpi"><div class="kpi-label">Known fraud labels</div><div class="kpi-value" id="kpi-fraud">—</div><div class="kpi-note">Observed target labels</div></article>
+        <article class="kpi"><div class="kpi-label">Label rate</div><div class="kpi-value" id="kpi-rate">—</div><div class="kpi-note">Fraud labels / transactions</div></article>
+        <article class="kpi"><div class="kpi-label">Total amount</div><div class="kpi-value" id="kpi-sum">—</div><div class="kpi-note" id="amount-note">Source units, no currency assumed</div></article>
+        <article class="kpi"><div class="kpi-label">Average amount</div><div class="kpi-value" id="kpi-average">—</div><div class="kpi-note">Per transaction</div></article>
+        <article class="kpi"><div class="kpi-label">High-risk scored</div><div class="kpi-value" id="kpi-highrisk">—</div><div class="kpi-note" id="highrisk-note">Predictive scores are outside this phase</div></article>
+      </div>
+      <div class="charts" id="charts" hidden>
+        <section class="chart-card"><div class="chart-title">Fraud vs. legitimate</div><div class="chart-caption">Counts from the selected dataset’s target labels</div><div id="fraud-split" class="bar-list"></div><div class="legend"><span><i></i>Legitimate</span><span><i class="fraud-key"></i>Fraud</span></div></section>
+        <section class="chart-card"><div class="chart-title">Fraud trend</div><div class="chart-caption" id="trend-caption">Fraud labels over time</div><canvas class="chart" id="trend-chart" aria-label="Fraud labels over time"></canvas></section>
+        <section class="chart-card wide"><div class="chart-title">Amount distribution</div><div class="chart-caption">Share of each label class per amount band; top 5% grouped in the final band</div><canvas class="chart" id="amount-chart" aria-label="Amount distribution by fraud label"></canvas><div class="legend"><span><i></i>Legitimate</span><span><i class="fraud-key"></i>Fraud</span></div></section>
+        <section class="chart-card wide" id="category-card"><div class="chart-title">Fraud by category</div><div class="chart-caption">Dataset 1 category labels; synthetic target correlations are not real-world evidence</div><div id="category-chart" class="bar-list"></div></section>
+      </div>
+      <div class="notice" id="error-state" role="alert" hidden><div class="notice-icon">!</div><div><strong>Dataset summary unavailable</strong><p id="error-message">Check local dataset configuration and try again.</p></div></div>
+      <div class="planned" id="performance"><h2>More analysis views</h2><div class="grid">
+        <section class="card"><div class="card-head">Model performance <span class="tag">PLANNED</span></div><p>Precision, recall, PR-AUC, ROC-AUC, threshold behavior, and confusion matrices for validated model results.</p><div class="placeholder" aria-hidden="true"></div></section>
         <section class="card" id="investigations"><div class="card-head">Transaction investigations <span class="tag">PLANNED</span></div><p>Submit a transaction, inspect its risk score, and review local SHAP contributors where supported.</p><div class="placeholder" aria-hidden="true"></div></section>
         <section class="card" id="data-quality"><div class="card-head">Data quality <span class="tag">PLANNED</span></div><p>Explore each dataset independently, with clear quality checks and the synthetic dataset labelled accordingly.</p><div class="placeholder" aria-hidden="true"></div></section>
+      </div></div>
       </div>
       <footer class="bottom"><span>Local demo · No sign-in required · No customer personal information displayed</span><span>Model scores are decision support, not calibrated guarantees.</span></footer>
     </main>
@@ -95,6 +259,50 @@ _DASHBOARD_HTML = """<!doctype html>
       document.querySelectorAll('nav a').forEach(item => { item.classList.remove('active'); item.removeAttribute('aria-current'); });
       link.classList.add('active'); link.setAttribute('aria-current', 'page');
     }));
+
+    const formatCount = value => new Intl.NumberFormat().format(value);
+    const formatAmount = value => new Intl.NumberFormat(undefined, {maximumFractionDigits: 2, notation: value >= 1e7 ? 'compact' : 'standard'}).format(value);
+    const drawLine = (canvas, points, color) => {
+      const ctx = canvas.getContext('2d'), ratio = window.devicePixelRatio || 1, width = canvas.clientWidth, height = canvas.clientHeight;
+      canvas.width = width * ratio; canvas.height = height * ratio; ctx.scale(ratio, ratio);
+      const pad = {l:38,r:12,t:14,b:32}, w=width-pad.l-pad.r, h=height-pad.t-pad.b;
+      ctx.clearRect(0,0,width,height); ctx.strokeStyle='#30404c'; ctx.fillStyle='#91a0ad'; ctx.font='10px system-ui';
+      for(let i=0;i<4;i++){const y=pad.t+h*i/3;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(width-pad.r,y);ctx.stroke();ctx.fillText(String(Math.round((Math.max(...points,1))*(1-i/3))),2,y+3)}
+      const max=Math.max(...points,1); ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();
+      points.forEach((v,i)=>{const x=pad.l+(points.length===1?w/2:w*i/(points.length-1)),y=pad.t+h*(1-v/max);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();
+    };
+    const drawAmounts = data => {
+      const canvas=document.getElementById('amount-chart'),ctx=canvas.getContext('2d'),ratio=window.devicePixelRatio||1,width=canvas.clientWidth,height=canvas.clientHeight;
+      canvas.width=width*ratio;canvas.height=height*ratio;ctx.scale(ratio,ratio);ctx.clearRect(0,0,width,height);
+      const pad={l:35,r:8,t:12,b:31},w=width-pad.l-pad.r,h=height-pad.t-pad.b, bins=data.labels.length;
+      const legitTotal=data.legitimate.reduce((a,b)=>a+b,0)||1,fraudTotal=data.fraud.reduce((a,b)=>a+b,0)||1;
+      const peak=Math.max(...data.legitimate.map((n)=>n/legitTotal*100),...data.fraud.map((n)=>n/fraudTotal*100),1);
+      const group=w/bins,bar=Math.max(2,group*.32);ctx.font='9px system-ui';ctx.fillStyle='#91a0ad';ctx.strokeStyle='#30404c';
+      for(let i=0;i<3;i++){const y=pad.t+h*i/2;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(width-pad.r,y);ctx.stroke();ctx.fillText(`${Math.round(peak*(1-i/2))}%`,2,y+3)}
+      data.labels.forEach((label,i)=>{const l=data.legitimate[i]/legitTotal*100,f=data.fraud[i]/fraudTotal*100,x=pad.l+group*i+group*.16;ctx.fillStyle='#67e0b1';ctx.fillRect(x,pad.t+h*(1-l/peak),bar,h*l/peak);ctx.fillStyle='#f3bd66';ctx.fillRect(x+bar+2,pad.t+h*(1-f/peak),bar,h*f/peak);if(i%2===0||i===bins-1)ctx.fillStyle='#91a0ad',ctx.fillText(label.split('–')[0],x-3,height-9)});
+    };
+    const drawBars = (target, rows, labelKey, countKey, className) => {
+      const root=document.getElementById(target);root.replaceChildren();const max=Math.max(...rows.map(row=>row[countKey]),1);
+      rows.forEach(row=>{const wrap=document.createElement('div'),line=document.createElement('div'),lab=document.createElement('span'),val=document.createElement('span'),track=document.createElement('div'),fill=document.createElement('div');wrap.className='bar-row';line.className='bar-label';lab.textContent=row[labelKey];val.textContent=formatCount(row[countKey]);track.className='track';fill.className=`fill ${className||''}`;fill.style.width=`${Math.max(row[countKey]/max*100,row[countKey]?1:0)}%`;line.append(lab,val);track.append(fill);wrap.append(line,track);root.append(wrap)});
+    };
+    const drawCategories = rows => {
+      const root=document.getElementById('category-chart');root.replaceChildren();const max=Math.max(...rows.map(row=>row.fraud_rate),.01);
+      rows.forEach(row=>{const wrap=document.createElement('div'),line=document.createElement('div'),lab=document.createElement('span'),val=document.createElement('span'),track=document.createElement('div'),fill=document.createElement('div');wrap.className='bar-row';line.className='bar-label';lab.textContent=row.category;val.textContent=`${(row.fraud_rate*100).toFixed(1)}% · ${formatCount(row.fraud)} labelled`;track.className='track';fill.className='fill fraud';fill.style.width=`${Math.max(row.fraud_rate/max*100,row.fraud_rate?1:0)}%`;line.append(lab,val);track.append(fill);wrap.append(line,track);root.append(wrap)});
+    };
+    async function loadOverview(){
+      const dataset=document.getElementById('dataset-select').value,state=document.getElementById('load-state'),error=document.getElementById('error-state');
+      state.hidden=false;state.textContent='Loading validated dataset summary…';error.hidden=true;document.getElementById('kpis').hidden=true;document.getElementById('charts').hidden=true;
+      try{
+        const response=await fetch(`/dashboard/overview?dataset=${encodeURIComponent(dataset)}`);if(!response.ok)throw new Error((await response.json()).detail||'Dataset summary unavailable');const data=await response.json(),k=data.kpis;
+        document.getElementById('kpi-total').textContent=formatCount(k.total_transactions);document.getElementById('kpi-fraud').textContent=formatCount(k.fraud_transactions);document.getElementById('kpi-rate').textContent=`${(k.fraud_rate*100).toFixed(dataset==='dataset2'?3:2)}%`;document.getElementById('kpi-sum').textContent=formatAmount(k.total_amount);document.getElementById('kpi-average').textContent=formatAmount(k.average_amount);document.getElementById('kpi-highrisk').textContent=k.high_risk_transactions==null?'—':formatCount(k.high_risk_transactions);
+        document.getElementById('dataset-notice').hidden=!data.dataset.synthetic;document.getElementById('category-card').hidden=!data.category_fraud.length;document.getElementById('amount-note').textContent=data.amount_note;state.hidden=true;document.getElementById('kpis').hidden=false;document.getElementById('charts').hidden=false;
+        drawBars('fraud-split',[{label:'Legitimate',count:data.fraud_split.legitimate},{label:'Fraud',count:data.fraud_split.fraud}],'label','count');document.querySelectorAll('#fraud-split .bar-row')[1]?.querySelector('.fill')?.classList.add('fraud');
+        document.getElementById('trend-caption').textContent=data.dataset.id==='dataset1'?'Known fraud labels by calendar day':'Known fraud labels by two-hour elapsed-time interval (source Time field)';drawLine(document.getElementById('trend-chart'),data.trend.map(row=>row.fraud),'#f3bd66');drawAmounts(data.amount_distribution);
+        drawCategories(data.category_fraud);
+        document.querySelector('.crumb').innerHTML=`Workspace <span aria-hidden="true">/</span> ${data.dataset.label}`;
+      }catch(err){state.hidden=true;error.hidden=false;document.getElementById('error-message').textContent=err.message}
+    }
+    document.getElementById('dataset-select').addEventListener('change',loadOverview);window.addEventListener('resize',()=>{if(!document.getElementById('charts').hidden)loadOverview()});loadOverview();
   </script>
 </body>
 </html>"""
