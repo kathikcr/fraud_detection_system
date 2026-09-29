@@ -1,9 +1,8 @@
 # Implementation Progress
 
-- **Completed:** Phase 0 repository inspection; Dataset 1 CSV profile; Dataset 2 KaggleHub downloader/reuse; reusable CSV ingestion; safe Dataset 1 relationship verification and transaction-table integration.
-- **Current feature:** None; Dataset 1 integration complete.
-- **Tests/checks:** 33 tests PASS. Safe join tests cover row count/no explosion, key uniqueness, unresolved and null foreign keys, duplicate join keys, transaction-key orphan records, target validation/preservation, and PII exclusion. Portable tests use generated small fixtures, so raw CSVs are not needed to run the suite; actual source CSVs were also loaded manually for row-count/target verification.
-- **Failures/limitations:** First join test run emitted a regex-string syntax warning, which was corrected; final suite has no warnings or failures. No Git repository is present, so Git checkpoint unavailable. Dataset 2 exact duplicate count remains 1,081 and is unchanged.
-- **Decisions:** Use verified transaction ID as output grain. Validate customer/account dimensions but omit personal/account activity fields. Preserve both amount columns under their original names. Keep Dataset 1 explicitly synthetic and label/anomaly fields out of future model predictors.
-- **Artifacts:** `Src/dataset1_integration.py`, `tests/unit/test_dataset1_integration.py`, `tests/data/test_dataset1_join.py`, `DATASET1_INTEGRATION.md`; updated README and project state.
-- **Next:** Generate separate EDA/profile results for each dataset; no models.
+- **Completed:** Repository inspection; Dataset 1 profile; Dataset 2 KaggleHub acquisition and reuse; reusable CSV ingestion; validated Dataset 1 relationship checks and privacy-conscious transaction view; separate EDA reports and charts for both datasets.
+- **Current feature:** EDA complete. No models trained.
+- **Tests/checks:** 38 tests PASS. EDA unit tests cover profile statistics, duplicate preservation, and malformed inputs. Report integration tests verify output artifacts using fixtures. Manual generation against the locally available datasets succeeded; the three charts and Markdown reports were visually reviewed.
+- **Limitations:** Dataset 1 is synthetic, with independently randomized labels. Dataset 2 PCA columns are anonymized and descriptive statistics do not establish feature importance. Dataset 2's 1,081 exact duplicate rows are reported and preserved. The generated reports describe the local snapshot.
+- **Artifacts:** `Src/eda.py`, `tests/unit/test_eda.py`, `tests/integration/test_eda_reports.py`, `reports/eda/`, `EDA_REPORTS.md`; README and project state updated.
+- **Next:** Leakage-safe preprocessing design, as a distinct feature phase; do not train models in that phase.

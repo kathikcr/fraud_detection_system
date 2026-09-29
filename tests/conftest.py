@@ -37,7 +37,8 @@ def dataset1_csv_root(tmp_path: Path) -> Path:
             "TransactionID": [1, 2, 3], "AnomalyScore": [0.1, 0.2, 0.3],
         }),
         "Transaction Data/transaction_metadata.csv": pd.DataFrame({
-            "TransactionID": [1, 2, 3], "Timestamp": ["t1", "t2", "t3"],
+            "TransactionID": [1, 2, 3],
+            "Timestamp": ["2022-01-01 00:00:00", "2022-01-01 01:00:00", "2022-01-02 00:00:00"],
             "MerchantID": [100, 100, 200],
         }),
         "Transaction Data/transaction_records.csv": pd.DataFrame({

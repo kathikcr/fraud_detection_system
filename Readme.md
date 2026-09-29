@@ -54,7 +54,7 @@ The downloaded raw CSV is stored under `Data/Dataset 2/` and excluded from Git. 
 
 Raw dataset CSVs are not checked into this repository. Place Dataset 1's files below `Data/` or set `FRAUD_DATASET1_DIR`; Dataset 2 is fetched automatically when it is not already available.
 
-The current file was observed to contain 284,807 rows, 31 columns, 492 positive `Class` labels, no missing values, and 1,081 exact duplicate rows. Duplicate handling has not yet been implemented. Dataset 1 is synthetic and should not be presented as real-world fraud evidence.
+The observed file contains 284,807 rows, 31 columns, 492 positive `Class` labels, no missing values, and 1,081 exact duplicate rows. Duplicates are preserved and reported. Dataset 1 is synthetic and should not be presented as real-world fraud evidence.
 
 ## Validated CSV ingestion
 
@@ -80,4 +80,16 @@ audit = result.report
 ```
 
 The integration step validates key coverage and join cardinality before merging. It preserves transaction grain and omits customer and account-profile fields from the output.
+
+## Exploratory data analysis
+
+Generate separate descriptive reports and charts after installing project dependencies and resolving the datasets:
+
+```python
+from Src.eda import generate_eda_reports
+
+artifacts = generate_eda_reports()
+```
+
+Artifacts are written to `reports/eda/`. Dataset 1 is explicitly treated as synthetic. Dataset 2's severe class imbalance, amount/time distributions, and anonymized PCA component summaries are described independently. The EDA does not train models or claim PCA mean differences are feature importance.
 
