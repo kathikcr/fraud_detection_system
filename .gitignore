@@ -1,0 +1,17 @@
+# Dataset 2 raw data and the machine-local resolved-path record.
+Data/Dataset 2/
+Data/.dataset2_location.json
+**/creditcard.csv
+
+# Keep all source dataset CSVs out of the repository.
+Data/**/*.csv
+
+# Local credentials and environment configuration.
+.env
+.env.*
+!.env.example
+
+# Python-generated files.
+__pycache__/
+*.py[cod]
+.pytest_cache/
