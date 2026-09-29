@@ -107,3 +107,7 @@ The third model is `Src.xgboost_baseline.run_xgboost_baseline(prepared_splits)`.
 
 The fourth required model is `Src.isolation_forest_baseline.run_isolation_forest_baseline(prepared_splits)`. It is unsupervised: only training features are passed to fit. Its native outlier cutoff is fixed to `contamination="auto"`; continuous anomaly scores are ranking signals, not fraud probabilities. The measured test results show a substantial false-alert burden; see [reports/models/isolation_forest_baseline.md](reports/models/isolation_forest_baseline.md).
 
+## Unified model evaluation
+
+`Src.evaluation.evaluate_models(prepared_splits, specs)` evaluates already-fitted estimators on validation and test without fitting or tuning them. Provide an `EvaluationSpec` for each estimator to indicate whether it supplies fraud probabilities or anomaly scores. The output includes precision, recall, F1, ROC-AUC, PR-AUC, alert rate, confusion counts, ROC/precision-recall curves, and confusion-matrix charts. The local four-model comparison is in [reports/evaluation/model_comparison.md](reports/evaluation/model_comparison.md). Isolation Forest rankings are kept distinct from calibrated probabilities.
+

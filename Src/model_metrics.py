@@ -79,13 +79,14 @@ def measure_binary_probabilities(target: pd.Series, probabilities, *, threshold:
 def measure_binary_scores(target: pd.Series, scores, predictions) -> BinaryMetrics:
     """Compute ranking metrics from any finite score plus fixed binary decisions."""
     scores = np.asarray(scores, dtype=float)
-    predictions = np.asarray(predictions, dtype=int)
+    predictions = np.asarray(predictions)
     if target.isna().any() or not target.isin({0, 1}).all() or target.nunique() != 2:
         raise MetricsError("Metrics target must contain both non-null classes 0 and 1")
     if scores.ndim != 1 or len(scores) != len(target) or not np.isfinite(scores).all():
         raise MetricsError("Score vector must be finite, one-dimensional, and aligned with target rows")
     if predictions.ndim != 1 or len(predictions) != len(target) or not np.isin(predictions, [0, 1]).all():
         raise MetricsError("Predictions must be aligned binary values containing only 0/1")
+    predictions = predictions.astype(int)
     precision, recall, f1, _ = precision_recall_fscore_support(
         target, predictions, average="binary", pos_label=1, zero_division=0
     )
