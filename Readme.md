@@ -111,3 +111,7 @@ The fourth required model is `Src.isolation_forest_baseline.run_isolation_forest
 
 `Src.evaluation.evaluate_models(prepared_splits, specs)` evaluates already-fitted estimators on validation and test without fitting or tuning them. Provide an `EvaluationSpec` for each estimator to indicate whether it supplies fraud probabilities or anomaly scores. The output includes precision, recall, F1, ROC-AUC, PR-AUC, alert rate, confusion counts, ROC/precision-recall curves, and confusion-matrix charts. The local four-model comparison is in [reports/evaluation/model_comparison.md](reports/evaluation/model_comparison.md). Isolation Forest rankings are kept distinct from calibrated probabilities.
 
+## Risk scoring
+
+`Src.risk_scoring.build_risk_scorer()` wraps an already-fitted model to score one or more preprocessed transaction rows. Supervised scores are marked uncalibrated model probabilities scaled to 0–100; Isolation Forest uses a training-feature reference percentile, never a fraud probability. Default low/medium/high bands are display-only. See [RISK_SCORING.md](RISK_SCORING.md) for the distinctions and example.
+
