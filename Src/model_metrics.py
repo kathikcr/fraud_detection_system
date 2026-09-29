@@ -15,7 +15,12 @@ class MetricsError(ValueError):
     """Raised when binary metric inputs are invalid."""
 
 
-def validate_prepared_splits(splits: PreparedSplits, *, expected_target: str = "Class") -> None:
+def validate_prepared_splits(
+    splits: PreparedSplits,
+    *,
+    expected_target: str = "Class",
+    validate_training_target: bool = True,
+) -> None:
     """Validate model-ready train/validation/test arrays before fitting or scoring."""
     if splits.target_column != expected_target:
         raise MetricsError(f"Model expects target {expected_target!r}, received {splits.target_column!r}")
@@ -34,6 +39,8 @@ def validate_prepared_splits(splits: PreparedSplits, *, expected_target: str = "
             raise MetricsError(f"Dataset 2 {name} feature columns do not match training columns")
         if not np.isfinite(features.to_numpy(dtype=float)).all():
             raise MetricsError(f"Dataset 2 {name} features contain NaN or infinite values")
+        if name == "train" and not validate_training_target:
+            continue
         if target.isna().any() or not target.isin({0, 1}).all() or target.nunique() != 2:
             raise MetricsError(f"Dataset 2 {name} target must contain both non-null classes 0 and 1")
 
@@ -66,14 +73,27 @@ def measure_binary_probabilities(target: pd.Series, probabilities, *, threshold:
         raise MetricsError("Decision threshold must be a finite value between 0 and 1")
 
     predictions = (probabilities >= threshold).astype(int)
+    return measure_binary_scores(target, probabilities, predictions)
+
+
+def measure_binary_scores(target: pd.Series, scores, predictions) -> BinaryMetrics:
+    """Compute ranking metrics from any finite score plus fixed binary decisions."""
+    scores = np.asarray(scores, dtype=float)
+    predictions = np.asarray(predictions, dtype=int)
+    if target.isna().any() or not target.isin({0, 1}).all() or target.nunique() != 2:
+        raise MetricsError("Metrics target must contain both non-null classes 0 and 1")
+    if scores.ndim != 1 or len(scores) != len(target) or not np.isfinite(scores).all():
+        raise MetricsError("Score vector must be finite, one-dimensional, and aligned with target rows")
+    if predictions.ndim != 1 or len(predictions) != len(target) or not np.isin(predictions, [0, 1]).all():
+        raise MetricsError("Predictions must be aligned binary values containing only 0/1")
     precision, recall, f1, _ = precision_recall_fscore_support(
         target, predictions, average="binary", pos_label=1, zero_division=0
     )
     tn, fp, fn, tp = confusion_matrix(target, predictions, labels=[0, 1]).ravel()
     return BinaryMetrics(
         rows=len(target), precision=float(precision), recall=float(recall), f1=float(f1),
-        roc_auc=float(roc_auc_score(target, probabilities)),
-        pr_auc=float(average_precision_score(target, probabilities)),
+        roc_auc=float(roc_auc_score(target, scores)),
+        pr_auc=float(average_precision_score(target, scores)),
         true_negative=int(tn), false_positive=int(fp), false_negative=int(fn), true_positive=int(tp),
         predicted_positive=int(predictions.sum()),
     )

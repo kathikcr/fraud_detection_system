@@ -105,3 +105,5 @@ The second model is `Src.random_forest_baseline.run_random_forest_baseline(prepa
 
 The third model is `Src.xgboost_baseline.run_xgboost_baseline(prepared_splits)`. It calculates `scale_pos_weight` from training labels only and uses a bounded CPU histogram-tree configuration. Results and exact settings are in [reports/models/xgboost_baseline.md](reports/models/xgboost_baseline.md). All three model reports use the same chronological partitions and default 0.5 threshold; these are benchmark measurements, not tuned operating points.
 
+The fourth required model is `Src.isolation_forest_baseline.run_isolation_forest_baseline(prepared_splits)`. It is unsupervised: only training features are passed to fit. Its native outlier cutoff is fixed to `contamination="auto"`; continuous anomaly scores are ranking signals, not fraud probabilities. The measured test results show a substantial false-alert burden; see [reports/models/isolation_forest_baseline.md](reports/models/isolation_forest_baseline.md).
+
