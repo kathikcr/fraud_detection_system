@@ -123,3 +123,7 @@ The fourth required model is `Src.isolation_forest_baseline.run_isolation_forest
 
 `Src.inference.FraudInference` validates raw Dataset 2 transaction objects, transforms them with the loaded artifact's preprocessor, and returns a typed risk score and model alert decision for single transactions or batches. This is a library layer; no HTTP endpoint is included yet. See [INFERENCE.md](INFERENCE.md) for the input schema and behavior.
 
+## Explainability
+
+`Src.explainability.FraudExplainer` provides local SHAP attributions for a model score using a bounded, deterministic sample of training-only transformed features. It supports all four saved model families and preserves probability/anomaly score semantics. These are model explanations, not causal claims; `V1`–`V28` remain anonymized components. See [EXPLAINABILITY.md](EXPLAINABILITY.md).
+
