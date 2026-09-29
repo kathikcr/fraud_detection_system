@@ -1,8 +1,8 @@
 # Implementation Progress
 
-- **Completed:** Data pipeline phases; EDA; leakage-safe preprocessing; four Dataset 2 model baselines; unified evaluation; typed model-specific risk scoring; constrained model artifact save/load.
-- **Current state:** The platform can persist and restore the four supported fitted estimator families with their preprocessor and risk scorer. Artifacts use skops, immutable directories, checksums, runtime compatibility checks, a serialized-type allowlist, and exact model/preprocessor/feature metadata validation.
-- **Tests/checks:** 75 tests PASS, including round-trip risk score parity for Logistic Regression, Random Forest, XGBoost, and Isolation Forest; anomaly reference preservation; checksum and manifest tampering; and immutable destination behavior.
-- **Scoring decisions:** Supervised estimators map positive-class output ×100 and explicitly mark it uncalibrated. Isolation Forest uses negative `score_samples` ranked against training-feature anomaly scores; no labels or validation/test rows are used as the reference. Default low/medium/high bands `<30`, `30–<70`, `>=70` are display-only, not decision thresholds.
-- **Artifact docs:** `ARTIFACTS.md`; implementation in `Src/artifacts.py`; integration coverage in `tests/integration/test_artifact_persistence.py`.
-- **Next:** Build raw transaction request validation and prediction-facing inference flow on top of the saved artifact interface.
+- **Completed:** Data pipeline, Dataset 1 integration, EDA, leakage-safe preprocessing, four Dataset 2 model baselines, unified evaluation, typed risk scoring, safe model artifact save/load, and raw Dataset 2 transaction inference.
+- **Current state:** `Src.inference.FraudInference` accepts only a validated `LoadedArtifact`, validates the exact raw Dataset 2 numeric schema, uses the stored preprocessor, and returns risk score plus the model-specific alert decision. It logs model, score kind, count, duration, and error class without logging transaction values. No API endpoint is included yet.
+- **Tests/checks:** 94 tests PASS, including malformed input cases, float overflow, extremely large finite amount handling, model alert threshold behavior, and Logistic Regression/Isolation Forest inference through serialized artifacts. Full regression suite passes.
+- **Scoring decisions:** Supervised scores remain uncalibrated positive-class model probabilities scaled to 0–100. Isolation Forest remains an anomaly percentile against training-only scores. Display bands are separate from the alert decision.
+- **Inference docs:** `INFERENCE.md`; implementation in `Src/inference.py`; unit and integration coverage in `tests/unit/test_inference.py` and `tests/integration/test_inference_integration.py`.
+- **Next:** Implement explainability using SHAP as its own tested phase before transaction investigation or API endpoints.

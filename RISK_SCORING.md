@@ -1,6 +1,6 @@
 # Risk Scoring
 
-`Src.risk_scoring` wraps an already-fitted Dataset 2 estimator and converts its outputs to a display score in `[0, 100]`. The API expects rows already transformed by the train-fitted preprocessor. Raw transaction validation and transformation belong to the later inference layer.
+`Src.risk_scoring` wraps an already-fitted Dataset 2 estimator and converts its outputs to a display score in `[0, 100]`. The API expects rows already transformed by the train-fitted preprocessor. For raw request validation and transformation, use `Src.inference.FraudInference`; see [INFERENCE.md](INFERENCE.md).
 
 ## Supervised models
 

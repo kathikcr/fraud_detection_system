@@ -119,3 +119,7 @@ The fourth required model is `Src.isolation_forest_baseline.run_isolation_forest
 
 `Src.artifacts.save_model_artifact()` and `load_model_artifact()` persist and restore supported fitted models with their training-fitted preprocessor and risk-scoring metadata. Bundles use skops serialization, checksums, a fixed model-family allowlist, and runtime/feature-order validation. Each output directory is immutable; write a new versioned directory for a changed model. See [ARTIFACTS.md](ARTIFACTS.md) for the format and usage.
 
+## Raw transaction inference
+
+`Src.inference.FraudInference` validates raw Dataset 2 transaction objects, transforms them with the loaded artifact's preprocessor, and returns a typed risk score and model alert decision for single transactions or batches. This is a library layer; no HTTP endpoint is included yet. See [INFERENCE.md](INFERENCE.md) for the input schema and behavior.
+
