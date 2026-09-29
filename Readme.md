@@ -133,5 +133,5 @@ The fourth required model is `Src.isolation_forest_baseline.run_isolation_forest
 
 ## HTTP API
 
-The incremental API currently exposes only `GET /health` as a process liveness check. Start it locally with `python -m uvicorn Src.api:app --host 127.0.0.1 --port 8000`. See [API.md](API.md).
+The incremental API exposes `GET /health` as a process liveness check and `POST /predict` for one validated Dataset 2 transaction. Configure `FRAUD_MODEL_ARTIFACT_DIR` before running locally with `python -m uvicorn Src.api:app --host 127.0.0.1 --port 8000`. Authentication/rate limiting and further endpoints are separate work. See [API.md](API.md).
 

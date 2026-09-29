@@ -12,11 +12,11 @@ def test_health_endpoint_reports_process_liveness():
     assert response.headers["content-type"].startswith("application/json")
 
 
-def test_health_is_the_only_route_in_this_api_checkpoint():
+def test_health_and_prediction_are_the_only_routes_in_this_api_checkpoint():
     application = create_app()
     paths = {route.path for route in application.routes}
 
-    assert paths == {"/health"}
+    assert paths == {"/health", "/predict"}
 
 
 def test_health_endpoint_rejects_other_methods_and_unknown_paths():

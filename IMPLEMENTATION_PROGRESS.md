@@ -1,9 +1,8 @@
 # Implementation Progress
 
-- **Completed:** Data pipeline, Dataset 1 integration, EDA, leakage-safe preprocessing, four Dataset 2 baselines, unified evaluation, typed risk scoring, safe artifact save/load, transaction inference, SHAP explainability, transaction-level investigation, and the first HTTP endpoint (`GET /health`).
-- **Current state:** FastAPI exposes only `GET /health` as process liveness. It does not load a model or claim prediction readiness. Framework docs are disabled until API routes are built deliberately. Run with Uvicorn; `HTTPX` is a development-only test dependency.
-- **Tests/checks:** 115 tests PASS, including health response, unsupported method/path handling, route-surface check, and previous pipeline/model/inference/explainability/investigation regression suites. Live Uvicorn smoke check returned `{"status":"ok"}`.
-- **Environment warnings:** TestClient reports two transitive dependency deprecations from Starlette/AnyIO and python-multipart; no application warning or test failure.
-- **API constraints:** No prediction, investigation, or model-readiness endpoint is included yet. Health logs only a structured event and returns no sensitive data.
-- **Docs:** `API.md`; implementation `Src/api.py`; endpoint tests in `tests/api/test_health_endpoint.py`.
-- **Next:** Add one prediction endpoint using the validated inference layer.
+- **Completed:** Data pipeline, Dataset 1 integration, EDA, leakage-safe preprocessing, four Dataset 2 baselines, unified evaluation, typed risk scoring, safe artifact save/load, transaction inference, SHAP explainability, transaction-level investigation, `GET /health`, and single-transaction `POST /predict`.
+- **Current state:** `/predict` accepts the exact finite numeric Dataset 2 schema, rejects extra/missing fields and negative Time/Amount, and returns explicit probability/anomaly score semantics. The service loads the artifact from `FRAUD_MODEL_ARTIFACT_DIR` on first valid prediction and caches it under a lock. The request cannot choose a model path.
+- **Tests/checks:** 128 tests PASS, including API valid request/response parity, input/error edge cases, no-config/incompatible-artifact behavior, load-once caching, and the previous full regression suites.
+- **API constraints:** `/health` remains liveness only. `/predict` is not authenticated or rate-limited yet; local/trusted-network use only. Validation error responses do not echo transaction values.
+- **Docs:** `API.md`; routes in `Src/api.py`; API tests in `tests/api/`.
+- **Next:** Add one further API endpoint (transaction investigation) only after this prediction route checkpoint passes.
