@@ -18,7 +18,8 @@ def test_api_route_surface_contains_only_completed_endpoints():
 
     assert paths == {
         "/", "/dashboard/overview", "/dashboard/performance",
-        "/dashboard/performance/{chart_name}.png", "/health", "/predict", "/investigate",
+        "/dashboard/performance/{chart_name}.png", "/dashboard/quality",
+        "/health", "/predict", "/investigate",
     }
 
 
@@ -33,8 +34,11 @@ def test_local_dashboard_shell_is_directly_accessible_without_login():
     assert 'id="partition-select"' in response.text
     assert 'id="model-cards"' in response.text
     assert 'id="investigation-form"' in response.text
+    assert 'id="quality-dataset-select"' in response.text
+    assert 'id="quality-results"' in response.text
     assert "Array.from({length:28}" in response.text
     assert "fetch('/investigate'" in response.text
+    assert "dashboard/quality?dataset=" in response.text
     assert 'aria-label="Dashboard navigation"' in response.text
     assert "no sign-in required" in response.text.lower()
     assert 'type="password"' not in response.text.lower()

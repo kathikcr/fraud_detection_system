@@ -1,12 +1,13 @@
 # HTTP API (incremental)
 
-The local app serves the dashboard and seven API routes:
+The local app serves the dashboard and nine API routes:
 
 | Route | Purpose | Success response |
 |---|---|---|
 | `GET /` | Open the login-free local dashboard shell | `200` HTML page |
 | `GET /dashboard/overview?dataset=dataset1` or `dataset2` | Load independent cached KPIs and chart data for one validated dataset | `200` JSON overview |
 | `GET /dashboard/performance?partition=test` or `validation` | Read one partition from the saved Dataset 2 evaluation report | `200` JSON model metrics |
+| `GET /dashboard/quality?dataset=dataset1` or `dataset2` | Return quality checks for one independently loaded dataset | `200` JSON quality summary |
 | `GET /dashboard/performance/roc.png` | Read the saved validation/test ROC plot | `200` PNG image |
 | `GET /dashboard/performance/precision-recall.png` | Read the saved validation/test precision-recall plot | `200` PNG image |
 | `GET /health` | Confirm the API process can serve requests | `200 {"status":"ok"}` |
@@ -43,5 +44,7 @@ The overview defaults to Dataset 2 and accepts only `dataset1` or `dataset2`. Su
 The performance view reads the saved `reports/evaluation/model_comparison.md` without fitting models. It presents validation or test precision, recall, F1, ROC-AUC, PR-AUC, alert rate, decision rule, and confusion counts; Dataset 1 is not modeled. ROC and precision-recall plots are served from the existing evaluation artifacts. Thresholds remain fixed and Isolation Forest is labelled as an anomaly score.
 
 The Transaction Investigation section at `/#investigations` accepts one case reference plus the 30 raw Dataset 2 features, sends them to the existing `POST /investigate` endpoint, and displays the prediction semantics, decision rule, risk band, inference time, top five local SHAP contributors, and full attribution table. The case reference remains separate metadata; the UI does not claim SHAP values are causal. A zero-vector control is provided only as a UI smoke-test input. If the model artifact or training-only SHAP background is not configured, the dashboard explains which environment variables are required instead of implying the request succeeded.
+
+The Data Quality section at `/#data-quality` can independently inspect either dataset. Dataset 1 reports its ten source-table schemas, row and column counts, missing values, preserved exact duplicates, label counts, join coverage/cardinality, and transaction row preservation; personal field names and values are not returned. Dataset 1's randomized fraud labels are explicitly identified as synthetic. Dataset 2 reports its observed schema and row count, missing/duplicate counts, target distribution, fraud label rate, numeric validity, and observed Time/Amount ranges. No expected sample counts are presented as actual until the local source has been loaded and checked. Results are cached per process; refresh the server after changing source data.
 
 The API uses FastAPI and Uvicorn; route tests use FastAPI's `TestClient` with HTTPX. See `tests/api/`.

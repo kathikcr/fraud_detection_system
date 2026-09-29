@@ -13,7 +13,7 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from Src.dashboard import EVALUATION_REPORT, dashboard_shell, get_overview, get_performance
+from Src.dashboard import EVALUATION_REPORT, dashboard_shell, get_overview, get_performance, get_quality
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, StrictFloat, StrictInt, StrictStr, model_validator
@@ -219,6 +219,19 @@ def create_app(
                        "error_type": type(exc).__name__},
             )
             raise HTTPException(status_code=503, detail="The validated model evaluation report is unavailable or invalid.") from None
+
+    @application.get("/dashboard/quality", include_in_schema=False)
+    def dashboard_quality(dataset: Literal["dataset1", "dataset2"] = Query(default="dataset2")):
+        """Return privacy-conscious quality summaries for one dataset."""
+        try:
+            return get_quality(dataset)
+        except Exception as exc:
+            LOGGER.warning(
+                "dashboard_quality_unavailable",
+                extra={"event_type": "dashboard_quality_unavailable", "dataset": dataset,
+                       "error_type": type(exc).__name__},
+            )
+            raise HTTPException(status_code=503, detail="This dataset is unavailable or failed quality validation.") from None
 
     @application.get("/dashboard/performance/{chart_name}.png", include_in_schema=False)
     def dashboard_performance_chart(chart_name: Literal["roc", "precision-recall"]):

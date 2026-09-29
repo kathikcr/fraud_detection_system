@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 from fastapi.responses import HTMLResponse
 
-from Src.dataset1_integration import load_dataset1_transaction_table
-from Src.ingestion import load_dataset2
+from Src.dataset1_integration import Dataset1IntegrationError, build_dataset1_transaction_table, load_dataset1_transaction_table
+from Src.ingestion import IngestionError, load_dataset1, load_dataset2
 
 DATASET_IDS = ("dataset1", "dataset2")
 EVALUATION_REPORT = Path(__file__).resolve().parents[1] / "reports" / "evaluation" / "model_comparison.md"
@@ -77,6 +77,110 @@ def get_overview(dataset_id: str) -> dict:
 def clear_overview_cache() -> None:
     """Clear local dataset summaries (primarily useful after data refresh)."""
     get_overview.cache_clear()
+
+
+@lru_cache(maxsize=2)
+def get_quality(dataset_id: str) -> dict:
+    """Return a privacy-conscious quality snapshot for one independent dataset."""
+    if dataset_id == "dataset1":
+        try:
+            tables = load_dataset1()
+        except IngestionError as exc:
+            raise DashboardDataError(str(exc)) from exc
+        table_rows = []
+        missing_cells = duplicate_rows = 0
+        target_distribution: dict[str, int] = {}
+        for name, loaded in tables.items():
+            report = loaded.report
+            table_missing = sum(report.missing_values.values())
+            missing_cells += table_missing
+            duplicate_rows += report.duplicate_rows
+            table_rows.append({
+                "name": name.replace("_", " ").title(),
+                "rows": report.rows,
+                "columns": len(report.columns),
+                "missing_cells": table_missing,
+                "duplicate_rows": report.duplicate_rows,
+                "schema": "passed",
+            })
+            if name == "fraud_indicators":
+                target_distribution = {str(key): int(value) for key, value in report.target_distribution.items()}
+
+        try:
+            audit = build_dataset1_transaction_table(tables).report
+            relationships = [{
+                "source": item.source_table.replace("_", " ").title(),
+                "target": item.target_table.replace("_", " ").title(),
+                "cardinality": item.cardinality,
+                "matched": item.matched_reference_keys,
+                "unmatched": item.unmatched_reference_keys,
+                "unreferenced": item.unreferenced_target_keys,
+                "status": "passed" if item.unmatched_reference_keys == 0 and item.unreferenced_target_keys == 0 else "warning",
+            } for item in audit.relationships]
+            joins_preserved = audit.input_transaction_rows == audit.output_rows
+            transaction_rows = audit.output_rows
+        except Dataset1IntegrationError:
+            relationships = []
+            joins_preserved = False
+            transaction_rows = None
+
+        checks = [
+            {"name": "Source table schemas", "status": "passed", "detail": f"{len(table_rows)} expected CSV tables loaded and schema-validated"},
+            {"name": "Missing values", "status": "passed" if missing_cells == 0 else "warning", "detail": f"{missing_cells:,} missing cells across source tables"},
+            {"name": "Exact duplicate rows", "status": "warning" if duplicate_rows else "passed", "detail": f"{duplicate_rows:,} duplicate rows preserved across source tables"},
+            {"name": "Transaction joins", "status": "passed" if joins_preserved else "failed", "detail": "Validated joins preserve transaction row count" if joins_preserved else "Join coverage or transaction row-count validation failed"},
+            {"name": "Label interpretation", "status": "info", "detail": "Dataset 1 is synthetic; its fraud labels are randomly generated."},
+        ]
+        return {
+            "dataset": {"id": dataset_id, "label": "Synthetic Financial Fraud Dataset", "synthetic": True},
+            "summary": {"transaction_rows": transaction_rows, "source_tables": len(table_rows), "missing_cells": missing_cells, "duplicate_rows": duplicate_rows, "target_distribution": target_distribution},
+            "checks": checks, "tables": table_rows, "relationships": relationships,
+        }
+
+    if dataset_id == "dataset2":
+        try:
+            loaded = load_dataset2()
+        except IngestionError as exc:
+            raise DashboardDataError("Dataset 2 is unavailable or failed validation") from exc
+        frame, report = loaded.frame, loaded.report
+        numeric = frame.apply(pd.to_numeric, errors="coerce")
+        invalid_numeric = int((frame.notna() & numeric.isna()).to_numpy().sum())
+        non_finite = int(np.isinf(numeric.to_numpy(dtype=float)).sum()) if not numeric.empty else 0
+        distribution = {str(key): int(value) for key, value in report.target_distribution.items()}
+        fraud_count = distribution.get("1", 0)
+        legitimate_count = distribution.get("0", 0)
+        target_rate = fraud_count / report.rows if report.rows else 0.0
+        time_values = numeric["Time"].to_numpy(dtype=float)
+        amount_values = numeric["Amount"].to_numpy(dtype=float)
+        finite_time = time_values[np.isfinite(time_values)]
+        finite_amount = amount_values[np.isfinite(amount_values)]
+        time_min = float(finite_time.min()) if finite_time.size else None
+        time_max = float(finite_time.max()) if finite_time.size else None
+        amount_min = float(finite_amount.min()) if finite_amount.size else None
+        amount_max = float(finite_amount.max()) if finite_amount.size else None
+        range_valid = time_min is not None and amount_min is not None and time_min >= 0 and amount_min >= 0 and invalid_numeric == 0 and non_finite == 0
+        missing_cells = sum(report.missing_values.values())
+        checks = [
+            {"name": "Expected schema", "status": "passed", "detail": f"{len(report.columns)} expected columns validated"},
+            {"name": "Missing values", "status": "passed" if missing_cells == 0 else "warning", "detail": f"{missing_cells:,} missing cells"},
+            {"name": "Exact duplicate rows", "status": "warning" if report.duplicate_rows else "passed", "detail": f"{report.duplicate_rows:,} duplicate rows preserved"},
+            {"name": "Finite numeric values", "status": "passed" if non_finite == 0 and invalid_numeric == 0 else "failed", "detail": f"{invalid_numeric:,} non-numeric and {non_finite:,} infinite cells"},
+            {"name": "Time and Amount ranges", "status": "passed" if range_valid else "failed", "detail": "Both fields are non-negative" if range_valid else "A required non-negative field contains a negative value"},
+            {"name": "Target labels", "status": "passed", "detail": f"Observed {legitimate_count:,} legitimate and {fraud_count:,} fraud labels ({target_rate:.3%} fraud rate)"},
+        ]
+        return {
+            "dataset": {"id": dataset_id, "label": "Credit Card Fraud Dataset", "synthetic": False},
+            "summary": {"transaction_rows": report.rows, "source_tables": 1, "columns": len(report.columns), "missing_cells": missing_cells, "duplicate_rows": report.duplicate_rows, "target_distribution": distribution, "fraud_rate": target_rate, "time_range": [time_min, time_max], "amount_range": [amount_min, amount_max]},
+            "checks": checks,
+            "tables": [{"name": "Credit Card Transactions", "rows": report.rows, "columns": len(report.columns), "missing_cells": missing_cells, "duplicate_rows": report.duplicate_rows, "schema": "passed"}],
+            "relationships": [],
+        }
+    raise DashboardDataError("Unknown dataset selection")
+
+
+def clear_quality_cache() -> None:
+    """Clear cached local quality snapshots after a data refresh."""
+    get_quality.cache_clear()
 
 
 @lru_cache(maxsize=2)
@@ -370,14 +474,28 @@ _DASHBOARD_HTML = """<!doctype html>
     .attribution-table th,.attribution-table td { padding:7px;border-bottom:1px solid var(--line);text-align:right; }
     .attribution-table th:first-child,.attribution-table td:first-child { text-align:left; }
     .attribution-table th { color:var(--muted);font-weight:600; }
+    .quality-section { margin:34px 0 0;scroll-margin-top:20px; }
+    .quality-selector { padding:8px 11px;color:#b7c5cd;background:var(--panel);border:1px solid var(--line);border-radius:9px;font-size:12px; }
+    .quality-summary,.quality-checks { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0; }
+    .quality-stat,.quality-check,.quality-table-card { min-width:0;padding:14px;background:linear-gradient(145deg,#1a2631,#17222c);border:1px solid var(--line);border-radius:11px; }
+    .quality-stat-label,.quality-check-detail { color:var(--muted);font-size:10px; }
+    .quality-stat-value { margin-top:5px;font-size:20px;font-weight:700; }
+    .quality-check { display:flex;align-items:flex-start;gap:9px; }
+    .quality-mark { flex:0 0 auto;border-radius:20px;padding:2px 7px;text-transform:uppercase;font-size:9px;font-weight:700;letter-spacing:.4px; }
+    .quality-mark.passed { color:#83e5bd;background:#203a32; }.quality-mark.warning { color:#ffcf89;background:#3a3021; }.quality-mark.failed { color:#ff9c9c;background:#3a2529; }.quality-mark.info { color:#9ecaff;background:#223449; }
+    .quality-check-name { font-size:11px;font-weight:650; }.quality-check-detail { margin-top:3px;line-height:1.5; }
+    .quality-table-card { margin:14px 0;overflow:auto; }.quality-table-card h3 { margin:0 0 10px;font-size:12px; }
+    .quality-table { border-collapse:collapse;width:100%;font-size:10px;white-space:nowrap; }.quality-table th,.quality-table td { padding:8px;text-align:left;border-bottom:1px solid var(--line); }.quality-table th { color:var(--muted);font-weight:600; }
     section { scroll-margin-top:20px; }
     @media(max-width:1000px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
     @media(max-width:850px){.app{grid-template-columns:76px minmax(0,1fr)}aside{padding:20px 10px}.brand{justify-content:center;padding:0 0 28px}.brand-name,.eyebrow,.nav-label,.side-note{display:none}nav a{justify-content:center;padding:12px 6px}.grid{grid-template-columns:1fr 1fr}}
     @media(max-width:650px){.charts{grid-template-columns:1fr}.chart-card.wide{grid-column:span 1}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media(max-width:700px){.model-cards,.performance-charts{grid-template-columns:1fr}.section-head{align-items:flex-start;flex-direction:column}.metric-grid{gap:5px}.metric{padding:8px 5px}}
     @media(max-width:850px){.feature-inputs{grid-template-columns:repeat(3,minmax(0,1fr))}}
+    @media(max-width:850px){.quality-summary,.quality-checks{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media(max-width:560px){.app{display:block}aside{border-right:0;border-bottom:1px solid var(--line);padding:10px 14px}.brand{display:none}nav{display:flex;overflow-x:auto}nav a{flex:0 0 auto;padding:9px 11px}.nav-label{display:inline}.hero{align-items:flex-start;flex-direction:column;padding-top:27px}.grid{grid-template-columns:1fr}.card{min-height:125px}.topline{padding-bottom:16px}.bottom{flex-direction:column}}
     @media(max-width:560px){.feature-inputs{grid-template-columns:repeat(2,minmax(0,1fr))}.result-head{flex-direction:column}}
+    @media(max-width:560px){.quality-summary,.quality-checks{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -396,7 +514,7 @@ _DASHBOARD_HTML = """<!doctype html>
     <main id="overview">
       <div class="topline"><div class="crumb">Workspace <span aria-hidden="true">/</span> Overview</div><div class="local"><span class="dot"></span> Local environment</div></div>
       <header class="hero">
-        <div><div class="kicker">Fraud analytics</div><h1>See the signal.<br>Understand the risk.</h1><p class="sub">A focused workspace for transaction patterns, model performance, and explainable fraud investigation.</p></div>
+        <div><div class="kicker">Fraud analytics</div><h1>See the signal.<br>Understand the risk.</h1><p class="sub">A focused workspace for data quality, transaction patterns, model performance, and explainable fraud investigation.</p></div>
         <label class="selector"><b>Dataset</b><select id="dataset-select" aria-label="Select dataset"><option value="dataset2">Credit Card Fraud Dataset</option><option value="dataset1">Synthetic Financial Fraud Dataset</option></select></label>
       </header>
       <div id="dataset-notice" class="notice" hidden><div class="notice-icon">!</div><div><strong>Synthetic sample data</strong><p>Fraud labels in this dataset are randomly generated. These charts are for integration and UI demonstration only.</p></div></div>
@@ -447,9 +565,13 @@ _DASHBOARD_HTML = """<!doctype html>
           <details id="all-attributions" class="attribution-details"><summary>Show all feature attributions</summary><div id="attribution-table"></div></details>
         </article>
       </section>
-      <div class="planned"><h2>More analysis views</h2><div class="grid">
-        <section class="card" id="data-quality"><div class="card-head">Data quality <span class="tag">PLANNED</span></div><p>Explore each dataset independently, with clear quality checks and the synthetic dataset labelled accordingly.</p><div class="placeholder" aria-hidden="true"></div></section>
-      </div></div>
+      <section class="quality-section" id="data-quality" aria-labelledby="quality-title">
+        <div class="section-head"><div><div class="kicker">Source validation</div><h2 id="quality-title">Data quality</h2></div><label class="quality-selector">Dataset<select id="quality-dataset-select" aria-label="Quality dataset"><option value="dataset2">Credit Card Fraud Dataset</option><option value="dataset1">Synthetic Financial Fraud Dataset</option></select></label></div>
+        <div class="notice" id="quality-dataset-notice" hidden><div class="notice-icon">i</div><div><strong>Synthetic dataset</strong><p>This dataset's fraud labels are randomly generated; quality results do not establish real-world fraud patterns.</p></div></div>
+        <div id="quality-state" class="state" role="status" aria-live="polite">Loading dataset quality checks…</div>
+        <div id="quality-error" class="notice" role="alert" hidden><div class="notice-icon">!</div><div><strong>Quality summary unavailable</strong><p id="quality-error-message"></p></div></div>
+        <div id="quality-results" hidden><div id="quality-summary" class="quality-summary"></div><div id="quality-checks" class="quality-checks"></div><div class="quality-table-card"><h3>Validated source files</h3><div id="quality-tables"></div></div><div class="quality-table-card" id="quality-relationships-card"><h3>Dataset 1 transaction relationships</h3><div id="quality-relationships"></div></div><p class="field-help">Exact duplicate rows are reported and preserved by the ingestion pipeline. No customer names, addresses, or other personal fields are displayed.</p></div>
+      </section>
       </div>
       <footer class="bottom"><span>Local demo · No sign-in required · No customer personal information displayed</span><span>Model scores are decision support, not calibrated guarantees.</span></footer>
     </main>
@@ -525,6 +647,19 @@ _DASHBOARD_HTML = """<!doctype html>
         state.hidden=true;results.hidden=false;
       }catch(err){state.textContent=err.message;}
     }
+    function renderQuality(data){
+      const summary=data.summary,stats=[['Transactions',summary.transaction_rows==null?'Join check failed':formatCount(summary.transaction_rows)],['Source tables',formatCount(summary.source_tables)],['Missing cells',formatCount(summary.missing_cells)],['Exact duplicate rows',formatCount(summary.duplicate_rows)],['Target labels',Object.entries(summary.target_distribution).map(([label,count])=>`${label}: ${formatCount(count)}`).join(' · ')||'Not applicable']];
+      if(summary.columns!=null)stats.push(['Columns',formatCount(summary.columns)]);if(summary.fraud_rate!=null)stats.push(['Observed fraud label rate',`${(summary.fraud_rate*100).toFixed(3)}%`]);
+      const root=document.getElementById('quality-summary');root.replaceChildren();stats.forEach(([label,value])=>{const card=document.createElement('article'),name=document.createElement('div'),number=document.createElement('div');card.className='quality-stat';name.className='quality-stat-label';name.textContent=label;number.className='quality-stat-value';number.textContent=value;card.append(name,number);root.append(card)});
+      const checks=document.getElementById('quality-checks');checks.replaceChildren();data.checks.forEach(item=>{const card=document.createElement('article'),mark=document.createElement('span'),body=document.createElement('div'),name=document.createElement('div'),detail=document.createElement('div');card.className='quality-check';mark.className=`quality-mark ${item.status}`;mark.textContent=item.status;body.className='quality-check-body';name.className='quality-check-name';name.textContent=item.name;detail.className='quality-check-detail';detail.textContent=item.detail;body.append(name,detail);card.append(mark,body);checks.append(card)});
+      const renderTable=(target,headers,rows)=>{const table=document.createElement('table');table.className='quality-table';const head=document.createElement('thead'),headRow=document.createElement('tr');headers.forEach(label=>{const th=document.createElement('th');th.textContent=label;headRow.append(th)});head.append(headRow);const body=document.createElement('tbody');rows.forEach(row=>{const tr=document.createElement('tr');row.forEach(value=>{const td=document.createElement('td');td.textContent=String(value);tr.append(td)});body.append(tr)});table.append(head,body);target.replaceChildren(table)};
+      renderTable(document.getElementById('quality-tables'),['Source','Rows','Columns','Missing','Duplicates','Schema'],data.tables.map(item=>[item.name,formatCount(item.rows),formatCount(item.columns),formatCount(item.missing_cells),formatCount(item.duplicate_rows),item.schema]));
+      const relationshipCard=document.getElementById('quality-relationships-card');relationshipCard.hidden=!data.relationships.length;if(data.relationships.length)renderTable(document.getElementById('quality-relationships'),['Relationship','Cardinality','Matched','Unmatched','Unreferenced','Status'],data.relationships.map(item=>[`${item.source} → ${item.target}`,item.cardinality,formatCount(item.matched),formatCount(item.unmatched),formatCount(item.unreferenced),item.status]));
+    }
+    async function loadQuality(){
+      const dataset=document.getElementById('quality-dataset-select').value,state=document.getElementById('quality-state'),results=document.getElementById('quality-results'),error=document.getElementById('quality-error');state.hidden=false;state.textContent='Loading independent dataset quality summary…';results.hidden=true;error.hidden=true;
+      try{const response=await fetch(`/dashboard/quality?dataset=${encodeURIComponent(dataset)}`);if(!response.ok)throw new Error((await response.json()).detail||'Dataset quality summary unavailable');const data=await response.json();renderQuality(data);document.getElementById('quality-dataset-notice').hidden=!data.dataset.synthetic;state.hidden=true;results.hidden=false;}catch(err){state.hidden=true;error.hidden=false;document.getElementById('quality-error-message').textContent=err.message;}
+    }
     const featureNames=['Time',...Array.from({length:28},(_,index)=>`V${index+1}`),'Amount'];
     const featureInputs=document.getElementById('feature-inputs');featureNames.forEach(name=>{const label=document.createElement('label'),caption=document.createElement('span'),input=document.createElement('input');label.className='feature-field';caption.className='field-label';caption.textContent=name;input.type='number';input.step='any';input.required=true;input.name=name;input.autocomplete='off';input.setAttribute('aria-label',name);if(name==='Time'||name==='Amount')input.min='0';label.append(caption,input);featureInputs.append(label)});
     const investigationForm=document.getElementById('investigation-form'),investigateButton=document.getElementById('investigate-submit'),investigationError=document.getElementById('investigation-error'),investigationResult=document.getElementById('investigation-result');
@@ -544,7 +679,7 @@ _DASHBOARD_HTML = """<!doctype html>
         const response=await fetch('/investigate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transaction_id,transaction:values})}),payload=await response.json().catch(()=>({}));if(!response.ok){if(response.status===503)throw new Error('The investigation model or training-only SHAP background is not configured. Set FRAUD_MODEL_ARTIFACT_DIR and FRAUD_SHAP_BACKGROUND_PATH, then restart the local server.');if(response.status===422){const fields=Array.isArray(payload.detail)?[...new Set(payload.detail.map(item=>item.loc?.at(-1)).filter(Boolean))]:[];throw new Error(`Request validation failed${fields.length?` for ${fields.join(', ')}`:''}. Check the feature inputs.`);}throw new Error(payload.detail||'The investigation request could not be completed.');}renderInvestigation(payload);
       }catch(error){investigationResult.hidden=true;investigationError.hidden=false;document.getElementById('investigation-error-message').textContent=error.message;}finally{investigateButton.disabled=false;investigateButton.textContent='Investigate transaction';}
     });
-    document.getElementById('dataset-select').addEventListener('change',loadOverview);document.getElementById('partition-select').addEventListener('change',loadPerformance);window.addEventListener('resize',()=>{if(currentOverviewData&&!document.getElementById('charts').hidden){drawLine(document.getElementById('trend-chart'),currentOverviewData.trend.map(row=>row.fraud),'#f3bd66');drawAmounts(currentOverviewData.amount_distribution)}});loadOverview();loadPerformance();
+    document.getElementById('dataset-select').addEventListener('change',loadOverview);document.getElementById('partition-select').addEventListener('change',loadPerformance);document.getElementById('quality-dataset-select').addEventListener('change',loadQuality);window.addEventListener('resize',()=>{if(currentOverviewData&&!document.getElementById('charts').hidden){drawLine(document.getElementById('trend-chart'),currentOverviewData.trend.map(row=>row.fraud),'#f3bd66');drawAmounts(currentOverviewData.amount_distribution)}});loadOverview();loadPerformance();loadQuality();
   </script>
 </body>
 </html>"""

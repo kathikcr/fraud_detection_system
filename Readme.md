@@ -139,3 +139,5 @@ The local API also exposes `GET /health`, `POST /predict`, and `POST /investigat
 
 The Transaction Investigation view at `/#investigations` submits one Dataset 2 transaction to the existing local investigation API. It displays prediction semantics, the decision rule, risk band, inference time, and local SHAP contributors. Set the model artifact and training-only SHAP background environment variables above to enable scoring; without them, the view shows setup guidance.
 
+The Data Quality view at `/#data-quality` inspects Dataset 1 and Dataset 2 independently using the validated loaders. It reports observed schema/row counts, missing cells, duplicates, target labels, Dataset 1 relationship integrity, and Dataset 2 numeric/range checks. Dataset 1 is labelled synthetic, its fraud labels are described as randomized, and no personal data is displayed. Dataset 2 continues to reuse a valid local copy or the configured KaggleHub download/cache flow.
+
