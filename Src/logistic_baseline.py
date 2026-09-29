@@ -7,12 +7,11 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import average_precision_score, confusion_matrix, precision_recall_fscore_support, roc_auc_score
 
+from Src.model_metrics import BinaryMetrics, MetricsError, measure_binary_probabilities, metrics_markdown_row, validate_prepared_splits
 from Src.preprocessing import PreparedSplits
 
 LOGGER = logging.getLogger(__name__)
@@ -23,21 +22,6 @@ MAX_ITER = 2000
 
 class BaselineError(ValueError):
     """Raised when baseline inputs do not meet the model's contract."""
-
-
-@dataclass(frozen=True)
-class BinaryMetrics:
-    rows: int
-    precision: float
-    recall: float
-    f1: float
-    roc_auc: float
-    pr_auc: float
-    true_negative: int
-    false_positive: int
-    false_negative: int
-    true_positive: int
-    predicted_positive: int
 
 
 @dataclass(frozen=True)
@@ -60,9 +44,10 @@ def run_logistic_regression_baseline(splits: PreparedSplits) -> LogisticBaseline
     The default 0.5 threshold is not tuned. Validation and test are evaluated
     independently after the fit; the final test set is never used to train.
     """
-    if splits.target_column != "Class":
-        raise BaselineError("The first Logistic Regression baseline is scoped to Dataset 2 target 'Class'")
-    _validate_splits(splits)
+    try:
+        validate_prepared_splits(splits, expected_target="Class")
+    except MetricsError as exc:
+        raise BaselineError(str(exc)) from exc
     model = LogisticRegression(
         class_weight="balanced", max_iter=MAX_ITER, random_state=RANDOM_STATE, solver="lbfgs"
     )
@@ -73,8 +58,12 @@ def run_logistic_regression_baseline(splits: PreparedSplits) -> LogisticBaseline
     if convergence:
         raise BaselineError(f"Logistic Regression did not converge after {MAX_ITER} iterations")
 
-    validation = _measure(model, splits.X_validation, splits.y_validation)
-    test = _measure(model, splits.X_test, splits.y_test)
+    validation = measure_binary_probabilities(
+        splits.y_validation, model.predict_proba(splits.X_validation)[:, 1], threshold=DEFAULT_THRESHOLD
+    )
+    test = measure_binary_probabilities(
+        splits.y_test, model.predict_proba(splits.X_test)[:, 1], threshold=DEFAULT_THRESHOLD
+    )
     LOGGER.info(
         "logistic_regression_baseline_complete",
         extra={
@@ -124,47 +113,4 @@ def write_baseline_report(result: LogisticBaselineResult, path: str | Path) -> P
     return destination
 
 
-def _measure(model: LogisticRegression, features: pd.DataFrame, target: pd.Series) -> BinaryMetrics:
-    probabilities = model.predict_proba(features)[:, 1]
-    predictions = (probabilities >= DEFAULT_THRESHOLD).astype(int)
-    precision, recall, f1, _ = precision_recall_fscore_support(
-        target, predictions, average="binary", pos_label=1, zero_division=0
-    )
-    tn, fp, fn, tp = confusion_matrix(target, predictions, labels=[0, 1]).ravel()
-    return BinaryMetrics(
-        rows=len(target), precision=float(precision), recall=float(recall), f1=float(f1),
-        roc_auc=float(roc_auc_score(target, probabilities)),
-        pr_auc=float(average_precision_score(target, probabilities)),
-        true_negative=int(tn), false_positive=int(fp), false_negative=int(fn), true_positive=int(tp),
-        predicted_positive=int(predictions.sum()),
-    )
-
-
-def _validate_splits(splits: PreparedSplits) -> None:
-    partitions = (
-        ("train", splits.X_train, splits.y_train),
-        ("validation", splits.X_validation, splits.y_validation),
-        ("test", splits.X_test, splits.y_test),
-    )
-    expected_features = tuple(splits.X_train.columns)
-    if expected_features != splits.feature_names or not expected_features:
-        raise BaselineError("Training features do not match declared preprocessed feature names")
-    for name, features, target in partitions:
-        if features.empty or len(features) != len(target):
-            raise BaselineError(f"Dataset 2 {name} partition is empty or feature/target row counts differ")
-        if tuple(features.columns) != expected_features:
-            raise BaselineError(f"Dataset 2 {name} feature columns do not match training columns")
-        values = features.to_numpy(dtype=float)
-        if not np.isfinite(values).all():
-            raise BaselineError(f"Dataset 2 {name} features contain NaN or infinite values")
-        if target.isna().any() or not target.isin({0, 1}).all() or target.nunique() != 2:
-            raise BaselineError(f"Dataset 2 {name} target must contain both non-null classes 0 and 1")
-
-
-def _metrics_row(name: str, metrics: BinaryMetrics) -> str:
-    return (
-        f"| {name} | {metrics.rows:,} | {metrics.precision:.6f} | {metrics.recall:.6f} | "
-        f"{metrics.f1:.6f} | {metrics.roc_auc:.6f} | {metrics.pr_auc:.6f} | "
-        f"{metrics.true_negative:,} | {metrics.false_positive:,} | {metrics.false_negative:,} | "
-        f"{metrics.true_positive:,} | {metrics.predicted_positive:,} |"
-    )
+_metrics_row = metrics_markdown_row

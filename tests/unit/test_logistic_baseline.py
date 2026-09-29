@@ -47,7 +47,7 @@ def test_baseline_fits_train_only_and_reports_fraud_metrics():
 
 def test_baseline_rejects_wrong_target_misaligned_columns_and_invalid_features():
     splits = prepare_dataset2(toy_dataset2())
-    with pytest.raises(BaselineError, match="scoped to Dataset 2"):
+    with pytest.raises(BaselineError, match="expects target"):
         run_logistic_regression_baseline(replace(splits, target_column="FraudIndicator"))
 
     with pytest.raises(BaselineError, match="feature columns"):

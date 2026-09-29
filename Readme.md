@@ -101,3 +101,5 @@ Artifacts are written to `reports/eda/`. Dataset 1 is explicitly treated as synt
 
 The first Dataset 2 baseline is available through `Src.logistic_baseline.run_logistic_regression_baseline(prepared_splits)`. It uses class weights and a fixed 0.5 threshold; it does not tune on test data. Measured validation/test results are in [reports/models/logistic_regression_baseline.md](reports/models/logistic_regression_baseline.md). At this threshold, recall is high but precision is low, with hundreds of false positives; the score is a baseline, not a deployment-ready operating point. No Dataset 1 model is trained because its target is randomly generated.
 
+The second model is `Src.random_forest_baseline.run_random_forest_baseline(prepared_splits)`. It uses the same Dataset 2 splits and fixed threshold, with a bounded 200-tree configuration and balanced subsample weights. Results are in [reports/models/random_forest_baseline.md](reports/models/random_forest_baseline.md). On this snapshot it produced fewer false positives than Logistic Regression but lower recall; no test-based threshold tuning was done.
+
