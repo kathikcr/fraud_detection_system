@@ -1,6 +1,6 @@
 # HTTP API (incremental)
 
-The local app currently serves the dashboard and six API routes:
+The local app serves the dashboard and seven API routes:
 
 | Route | Purpose | Success response |
 |---|---|---|
@@ -41,5 +41,7 @@ Then open `http://127.0.0.1:8000/` for the dashboard shell, request `http://127.
 The overview defaults to Dataset 2 and accepts only `dataset1` or `dataset2`. Summaries use validated loaders and are cached for the process lifetime. Dataset 1 analytics use the joined transaction table, exclude personal fields, and are labelled synthetic. Dataset 2 `Time` is summarized as elapsed-time intervals, and `Amount` is shown in source units without a currency assumption. High-risk model counts are unavailable in this view because the overview displays observed target labels rather than recomputing model scores.
 
 The performance view reads the saved `reports/evaluation/model_comparison.md` without fitting models. It presents validation or test precision, recall, F1, ROC-AUC, PR-AUC, alert rate, decision rule, and confusion counts; Dataset 1 is not modeled. ROC and precision-recall plots are served from the existing evaluation artifacts. Thresholds remain fixed and Isolation Forest is labelled as an anomaly score.
+
+The Transaction Investigation section at `/#investigations` accepts one case reference plus the 30 raw Dataset 2 features, sends them to the existing `POST /investigate` endpoint, and displays the prediction semantics, decision rule, risk band, inference time, top five local SHAP contributors, and full attribution table. The case reference remains separate metadata; the UI does not claim SHAP values are causal. A zero-vector control is provided only as a UI smoke-test input. If the model artifact or training-only SHAP background is not configured, the dashboard explains which environment variables are required instead of implying the request succeeded.
 
 The API uses FastAPI and Uvicorn; route tests use FastAPI's `TestClient` with HTTPX. See `tests/api/`.

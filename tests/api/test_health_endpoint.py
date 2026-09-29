@@ -32,6 +32,9 @@ def test_local_dashboard_shell_is_directly_accessible_without_login():
     assert 'id="kpi-total"' in response.text
     assert 'id="partition-select"' in response.text
     assert 'id="model-cards"' in response.text
+    assert 'id="investigation-form"' in response.text
+    assert "Array.from({length:28}" in response.text
+    assert "fetch('/investigate'" in response.text
     assert 'aria-label="Dashboard navigation"' in response.text
     assert "no sign-in required" in response.text.lower()
     assert 'type="password"' not in response.text.lower()

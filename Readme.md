@@ -137,3 +137,5 @@ The local dashboard is at `/`; its dataset selector loads an independent, cached
 
 The local API also exposes `GET /health`, `POST /predict`, and `POST /investigate` for one validated Dataset 2 case with local SHAP evidence. Configure `FRAUD_MODEL_ARTIFACT_DIR` and, for investigations, `FRAUD_SHAP_BACKGROUND_PATH` before running locally with `python -m uvicorn Src.api:app --host 127.0.0.1 --port 8000`. The application is directly accessible for local use; authentication and deployment are out of scope. See [API.md](API.md).
 
+The Transaction Investigation view at `/#investigations` submits one Dataset 2 transaction to the existing local investigation API. It displays prediction semantics, the decision rule, risk band, inference time, and local SHAP contributors. Set the model artifact and training-only SHAP background environment variables above to enable scoring; without them, the view shows setup guidance.
+

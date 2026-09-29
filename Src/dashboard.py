@@ -336,12 +336,48 @@ _DASHBOARD_HTML = """<!doctype html>
     .curve-card img { display:block;width:100%;height:auto;border-radius:6px;background:#fff; }
     .limitations { color:var(--muted);font-size:11px;line-height:1.6;padding-left:18px; }
     .limitations li+li { margin-top:3px; }
+    .investigation-section { margin:34px 0 0;scroll-margin-top:20px; }
+    .investigation-note { margin:12px 0 16px; }
+    .investigation-form { padding:18px;background:linear-gradient(145deg,#1a2631,#17222c);border:1px solid var(--line);border-radius:13px; }
+    .case-field { display:grid;gap:6px;max-width:460px;margin-bottom:16px; }
+    .field-label { color:#c8d3d9;font-size:11px;font-weight:600; }
+    .field-help { color:var(--muted);font-size:10px; }
+    input { width:100%;padding:9px 10px;border:1px solid #3a4b58;border-radius:7px;background:#111b24;color:var(--text);font:inherit; }
+    input:focus,select:focus,button:focus-visible { outline:2px solid var(--mint);outline-offset:2px; }
+    .feature-inputs { display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;margin-top:10px; }
+    .feature-field { display:grid;gap:4px;min-width:0; }
+    .feature-field input { padding:8px;font-size:12px; }
+    .form-actions { display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:17px; }
+    button { padding:9px 13px;border:1px solid var(--line);border-radius:8px;background:#22313d;color:var(--text);font:inherit;font-size:11px;font-weight:650;cursor:pointer; }
+    button.primary { background:#67e0b1;border-color:#67e0b1;color:#10201e; }
+    button:disabled { opacity:.55;cursor:wait; }
+    .case-result { margin-top:16px;padding:18px;background:linear-gradient(145deg,#1a2631,#17222c);border:1px solid var(--line);border-radius:13px; }
+    .result-head { display:flex;align-items:flex-start;justify-content:space-between;gap:16px; }
+    .result-title { font-size:14px;font-weight:700; }
+    .score { font-size:27px;font-weight:750;letter-spacing:-.8px; }
+    .result-meta { color:var(--muted);font-size:11px;margin-top:4px;line-height:1.6; }
+    .result-badges { display:flex;gap:8px;flex-wrap:wrap;margin:14px 0; }
+    .result-badge { border:1px solid #3a4b58;background:#17232d;border-radius:7px;padding:6px 9px;color:#c7d2d8;font-size:10px; }
+    .result-badge.alert { color:#ffcf89;border-color:#735b38;background:#30281e; }
+    .contribution-list { display:grid;gap:10px;margin:14px 0; }
+    .contribution-head { display:flex;justify-content:space-between;gap:12px;color:#c7d2d8;font-size:10px;margin-bottom:5px; }
+    .contribution-track { height:6px;background:#2a3946;border-radius:8px;overflow:hidden; }
+    .contribution-fill { height:100%;background:var(--mint);border-radius:8px; }
+    .contribution-fill.negative { background:var(--blue); }
+    .attribution-details { margin-top:14px;border-top:1px solid var(--line);padding-top:12px; }
+    .attribution-details summary { cursor:pointer;color:var(--blue);font-size:11px; }
+    .attribution-table { width:100%;border-collapse:collapse;margin-top:10px;font-size:10px; }
+    .attribution-table th,.attribution-table td { padding:7px;border-bottom:1px solid var(--line);text-align:right; }
+    .attribution-table th:first-child,.attribution-table td:first-child { text-align:left; }
+    .attribution-table th { color:var(--muted);font-weight:600; }
     section { scroll-margin-top:20px; }
     @media(max-width:1000px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
     @media(max-width:850px){.app{grid-template-columns:76px minmax(0,1fr)}aside{padding:20px 10px}.brand{justify-content:center;padding:0 0 28px}.brand-name,.eyebrow,.nav-label,.side-note{display:none}nav a{justify-content:center;padding:12px 6px}.grid{grid-template-columns:1fr 1fr}}
     @media(max-width:650px){.charts{grid-template-columns:1fr}.chart-card.wide{grid-column:span 1}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media(max-width:700px){.model-cards,.performance-charts{grid-template-columns:1fr}.section-head{align-items:flex-start;flex-direction:column}.metric-grid{gap:5px}.metric{padding:8px 5px}}
+    @media(max-width:850px){.feature-inputs{grid-template-columns:repeat(3,minmax(0,1fr))}}
     @media(max-width:560px){.app{display:block}aside{border-right:0;border-bottom:1px solid var(--line);padding:10px 14px}.brand{display:none}nav{display:flex;overflow-x:auto}nav a{flex:0 0 auto;padding:9px 11px}.nav-label{display:inline}.hero{align-items:flex-start;flex-direction:column;padding-top:27px}.grid{grid-template-columns:1fr}.card{min-height:125px}.topline{padding-bottom:16px}.bottom{flex-direction:column}}
+    @media(max-width:560px){.feature-inputs{grid-template-columns:repeat(2,minmax(0,1fr))}.result-head{flex-direction:column}}
   </style>
 </head>
 <body>
@@ -393,8 +429,25 @@ _DASHBOARD_HTML = """<!doctype html>
           <ul id="performance-limitations" class="limitations"></ul>
         </div>
       </section>
+      <section class="investigation-section" id="investigations" aria-labelledby="investigation-title">
+        <div class="section-head"><div><div class="kicker">Single transaction</div><h2 id="investigation-title">Transaction investigation</h2></div></div>
+        <div class="notice investigation-note"><div class="notice-icon">i</div><div><strong>Dataset 2 only</strong><p>Enter the 30 raw benchmark features. V1–V28 are anonymized PCA components. The case reference is metadata, not a model feature; outputs explain model behavior and are not causal findings.</p></div></div>
+        <form id="investigation-form" class="investigation-form">
+          <label class="case-field"><span class="field-label">Case reference</span><input name="transaction_id" required maxlength="128" value="local-case-001" autocomplete="off"><span class="field-help">Your reference for this review; it is not sent to the model.</span></label>
+          <div class="field-label">Transaction features</div><div id="feature-inputs" class="feature-inputs"></div>
+          <div class="field-help" style="margin-top:9px">Time and Amount must be non-negative. All fields require finite numeric values. Amount is shown in source units; no currency is assumed.</div>
+          <div class="form-actions"><button class="primary" type="submit" id="investigate-submit">Investigate transaction</button><button type="button" id="fill-zero-features">Fill zero test vector</button><span class="field-help">The zero vector is a UI smoke-test input, not a real transaction.</span></div>
+        </form>
+        <div id="investigation-error" class="notice" role="alert" hidden><div class="notice-icon">!</div><div><strong>Investigation unavailable</strong><p id="investigation-error-message"></p></div></div>
+        <article id="investigation-result" class="case-result" aria-live="polite" hidden>
+          <div class="result-head"><div><div class="result-title" id="result-model"></div><div class="result-meta" id="result-case"></div></div><div><div class="field-help" id="result-score-label"></div><div class="score" id="result-score"></div></div></div>
+          <div class="result-badges" id="result-badges"></div>
+          <div class="field-label">Largest local SHAP contributors</div><div id="top-contributors" class="contribution-list"></div>
+          <div id="attribution-caveat" class="field-help">Positive values increase the explained model output relative to its baseline; negative values decrease it. SHAP attributions describe model behavior, not causation. V1–V28 are anonymized PCA components.</div>
+          <details id="all-attributions" class="attribution-details"><summary>Show all feature attributions</summary><div id="attribution-table"></div></details>
+        </article>
+      </section>
       <div class="planned"><h2>More analysis views</h2><div class="grid">
-        <section class="card" id="investigations"><div class="card-head">Transaction investigations <span class="tag">PLANNED</span></div><p>Submit a transaction, inspect its risk score, and review local SHAP contributors where supported.</p><div class="placeholder" aria-hidden="true"></div></section>
         <section class="card" id="data-quality"><div class="card-head">Data quality <span class="tag">PLANNED</span></div><p>Explore each dataset independently, with clear quality checks and the synthetic dataset labelled accordingly.</p><div class="placeholder" aria-hidden="true"></div></section>
       </div></div>
       </div>
@@ -436,11 +489,12 @@ _DASHBOARD_HTML = """<!doctype html>
       const root=document.getElementById('category-chart');root.replaceChildren();const max=Math.max(...rows.map(row=>row.fraud_rate),.01);
       rows.forEach(row=>{const wrap=document.createElement('div'),line=document.createElement('div'),lab=document.createElement('span'),val=document.createElement('span'),track=document.createElement('div'),fill=document.createElement('div');wrap.className='bar-row';line.className='bar-label';lab.textContent=row.category;val.textContent=`${(row.fraud_rate*100).toFixed(1)}% · ${formatCount(row.fraud)} labelled`;track.className='track';fill.className='fill fraud';fill.style.width=`${Math.max(row.fraud_rate/max*100,row.fraud_rate?1:0)}%`;line.append(lab,val);track.append(fill);wrap.append(line,track);root.append(wrap)});
     };
+    let currentOverviewData=null;
     async function loadOverview(){
       const dataset=document.getElementById('dataset-select').value,state=document.getElementById('load-state'),error=document.getElementById('error-state');
       state.hidden=false;state.textContent='Loading validated dataset summary…';error.hidden=true;document.getElementById('kpis').hidden=true;document.getElementById('charts').hidden=true;
       try{
-        const response=await fetch(`/dashboard/overview?dataset=${encodeURIComponent(dataset)}`);if(!response.ok)throw new Error((await response.json()).detail||'Dataset summary unavailable');const data=await response.json(),k=data.kpis;
+        const response=await fetch(`/dashboard/overview?dataset=${encodeURIComponent(dataset)}`);if(!response.ok)throw new Error((await response.json()).detail||'Dataset summary unavailable');const data=await response.json(),k=data.kpis;currentOverviewData=data;
         document.getElementById('kpi-total').textContent=formatCount(k.total_transactions);document.getElementById('kpi-fraud').textContent=formatCount(k.fraud_transactions);document.getElementById('kpi-rate').textContent=`${(k.fraud_rate*100).toFixed(dataset==='dataset2'?3:2)}%`;document.getElementById('kpi-sum').textContent=formatAmount(k.total_amount);document.getElementById('kpi-average').textContent=formatAmount(k.average_amount);document.getElementById('kpi-highrisk').textContent=k.high_risk_transactions==null?'—':formatCount(k.high_risk_transactions);
         document.getElementById('dataset-notice').hidden=!data.dataset.synthetic;document.getElementById('category-card').hidden=!data.category_fraud.length;document.getElementById('amount-note').textContent=data.amount_note;state.hidden=true;document.getElementById('kpis').hidden=false;document.getElementById('charts').hidden=false;
         drawBars('fraud-split',[{label:'Legitimate',count:data.fraud_split.legitimate},{label:'Fraud',count:data.fraud_split.fraud}],'label','count');document.querySelectorAll('#fraud-split .bar-row')[1]?.querySelector('.fill')?.classList.add('fraud');
@@ -471,7 +525,26 @@ _DASHBOARD_HTML = """<!doctype html>
         state.hidden=true;results.hidden=false;
       }catch(err){state.textContent=err.message;}
     }
-    document.getElementById('dataset-select').addEventListener('change',loadOverview);document.getElementById('partition-select').addEventListener('change',loadPerformance);window.addEventListener('resize',()=>{if(!document.getElementById('charts').hidden)loadOverview()});loadOverview();loadPerformance();
+    const featureNames=['Time',...Array.from({length:28},(_,index)=>`V${index+1}`),'Amount'];
+    const featureInputs=document.getElementById('feature-inputs');featureNames.forEach(name=>{const label=document.createElement('label'),caption=document.createElement('span'),input=document.createElement('input');label.className='feature-field';caption.className='field-label';caption.textContent=name;input.type='number';input.step='any';input.required=true;input.name=name;input.autocomplete='off';input.setAttribute('aria-label',name);if(name==='Time'||name==='Amount')input.min='0';label.append(caption,input);featureInputs.append(label)});
+    const investigationForm=document.getElementById('investigation-form'),investigateButton=document.getElementById('investigate-submit'),investigationError=document.getElementById('investigation-error'),investigationResult=document.getElementById('investigation-result');
+    document.getElementById('fill-zero-features').addEventListener('click',()=>{featureNames.forEach(name=>investigationForm.elements.namedItem(name).value='0');investigationForm.elements.namedItem('transaction_id').value='local-test-001';investigationError.hidden=true;});
+    const addBadge=(text,alert=false)=>{const badge=document.createElement('span');badge.className=`result-badge${alert?' alert':''}`;badge.textContent=text;document.getElementById('result-badges').append(badge)};
+    function renderInvestigation(result){
+      const prediction=result.prediction,explanation=result.explanation;document.getElementById('result-model').textContent=prediction.model_name;document.getElementById('result-case').textContent=`Case ${result.transaction_id} · Amount ${formatAmount(result.amount)} source units · Time ${formatAmount(result.time)} source time · ${prediction.inference_ms.toFixed(1)} ms inference`;
+      document.getElementById('result-score-label').textContent=prediction.score_kind==='probability'?'Uncalibrated model probability':'Anomaly score (not a fraud probability)';document.getElementById('result-score').textContent=prediction.score_kind==='probability'?`${(prediction.score*100).toFixed(2)}%`:prediction.score.toFixed(4);
+      const badges=document.getElementById('result-badges');badges.replaceChildren();addBadge(`Risk band: ${prediction.risk_level.toUpperCase()}`);addBadge(prediction.model_alert?'Model alert':'No model alert',prediction.model_alert);addBadge(prediction.decision_method);addBadge(explanation.output_scale);document.getElementById('attribution-caveat').textContent=`Score basis: ${prediction.score_basis}. Positive SHAP values increase the explained model output relative to its baseline; negative values decrease it. These are model attributions, not causal findings. V1–V28 are anonymized PCA components.`;
+      const top=document.getElementById('top-contributors');top.replaceChildren();const max=Math.max(...result.top_contributors.map(item=>Math.abs(item.shap_value)),1e-12);result.top_contributors.forEach(item=>{const row=document.createElement('div'),line=document.createElement('div'),name=document.createElement('span'),value=document.createElement('span'),track=document.createElement('div'),fill=document.createElement('div');row.className='contribution-row';line.className='contribution-head';name.textContent=item.feature_name;value.textContent=`feature ${item.feature_value.toPrecision(4)} · SHAP ${item.shap_value>=0?'+':''}${item.shap_value.toPrecision(4)}`;track.className='contribution-track';fill.className=`contribution-fill${item.shap_value<0?' negative':''}`;fill.style.width=`${Math.max(Math.abs(item.shap_value)/max*100,2)}%`;line.append(name,value);track.append(fill);row.append(line,track);top.append(row)});
+      const table=document.createElement('table');table.className='attribution-table';const head=document.createElement('thead'),headRow=document.createElement('tr');['Feature','Raw value','SHAP value'].forEach(label=>{const cell=document.createElement('th');cell.textContent=label;headRow.append(cell)});head.append(headRow);const body=document.createElement('tbody');explanation.attributions.forEach(item=>{const row=document.createElement('tr');[item.feature_name,item.feature_value,item.shap_value].forEach((value,index)=>{const cell=document.createElement('td');cell.textContent=index===0?String(value):Number(value).toPrecision(6);row.append(cell)});body.append(row)});table.append(head,body);document.getElementById('attribution-table').replaceChildren(table);document.getElementById('all-attributions').open=false;investigationError.hidden=true;investigationResult.hidden=false;
+    }
+    investigationForm.addEventListener('submit',async event=>{
+      event.preventDefault();if(!investigationForm.reportValidity())return;investigationError.hidden=true;investigationResult.hidden=true;investigateButton.disabled=true;investigateButton.textContent='Investigating…';
+      try{
+        const values=Object.fromEntries(featureNames.map(name=>[name,Number(investigationForm.elements.namedItem(name).value)]));if(Object.values(values).some(value=>!Number.isFinite(value)))throw new Error('Enter finite numeric values for all 30 transaction features.');const transaction_id=investigationForm.elements.namedItem('transaction_id').value.trim();if(!transaction_id)throw new Error('Enter a case reference for this investigation.');
+        const response=await fetch('/investigate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transaction_id,transaction:values})}),payload=await response.json().catch(()=>({}));if(!response.ok){if(response.status===503)throw new Error('The investigation model or training-only SHAP background is not configured. Set FRAUD_MODEL_ARTIFACT_DIR and FRAUD_SHAP_BACKGROUND_PATH, then restart the local server.');if(response.status===422){const fields=Array.isArray(payload.detail)?[...new Set(payload.detail.map(item=>item.loc?.at(-1)).filter(Boolean))]:[];throw new Error(`Request validation failed${fields.length?` for ${fields.join(', ')}`:''}. Check the feature inputs.`);}throw new Error(payload.detail||'The investigation request could not be completed.');}renderInvestigation(payload);
+      }catch(error){investigationResult.hidden=true;investigationError.hidden=false;document.getElementById('investigation-error-message').textContent=error.message;}finally{investigateButton.disabled=false;investigateButton.textContent='Investigate transaction';}
+    });
+    document.getElementById('dataset-select').addEventListener('change',loadOverview);document.getElementById('partition-select').addEventListener('change',loadPerformance);window.addEventListener('resize',()=>{if(currentOverviewData&&!document.getElementById('charts').hidden){drawLine(document.getElementById('trend-chart'),currentOverviewData.trend.map(row=>row.fraud),'#f3bd66');drawAmounts(currentOverviewData.amount_distribution)}});loadOverview();loadPerformance();
   </script>
 </body>
 </html>"""
