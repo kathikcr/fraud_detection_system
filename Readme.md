@@ -103,3 +103,5 @@ The first Dataset 2 baseline is available through `Src.logistic_baseline.run_log
 
 The second model is `Src.random_forest_baseline.run_random_forest_baseline(prepared_splits)`. It uses the same Dataset 2 splits and fixed threshold, with a bounded 200-tree configuration and balanced subsample weights. Results are in [reports/models/random_forest_baseline.md](reports/models/random_forest_baseline.md). On this snapshot it produced fewer false positives than Logistic Regression but lower recall; no test-based threshold tuning was done.
 
+The third model is `Src.xgboost_baseline.run_xgboost_baseline(prepared_splits)`. It calculates `scale_pos_weight` from training labels only and uses a bounded CPU histogram-tree configuration. Results and exact settings are in [reports/models/xgboost_baseline.md](reports/models/xgboost_baseline.md). All three model reports use the same chronological partitions and default 0.5 threshold; these are benchmark measurements, not tuned operating points.
+
