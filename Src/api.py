@@ -12,8 +12,8 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse
-from Src.dashboard import dashboard_shell, get_overview
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from Src.dashboard import EVALUATION_REPORT, dashboard_shell, get_overview, get_performance
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, StrictFloat, StrictInt, StrictStr, model_validator
@@ -206,6 +206,28 @@ def create_app(
                 status_code=503,
                 detail="This dataset is unavailable or failed validation. Check its local configuration and try again.",
             ) from None
+
+    @application.get("/dashboard/performance", include_in_schema=False)
+    def dashboard_performance(partition: Literal["validation", "test"] = Query(default="test")):
+        """Return metrics from the saved, already-computed evaluation report."""
+        try:
+            return get_performance(partition)
+        except Exception as exc:
+            LOGGER.warning(
+                "dashboard_performance_unavailable",
+                extra={"event_type": "dashboard_performance_unavailable", "partition": partition,
+                       "error_type": type(exc).__name__},
+            )
+            raise HTTPException(status_code=503, detail="The validated model evaluation report is unavailable or invalid.") from None
+
+    @application.get("/dashboard/performance/{chart_name}.png", include_in_schema=False)
+    def dashboard_performance_chart(chart_name: Literal["roc", "precision-recall"]):
+        """Serve the corresponding ROC or precision-recall plot from saved evaluation artifacts."""
+        filename = {"roc": "roc_curves.png", "precision-recall": "precision_recall_curves.png"}[chart_name]
+        path = EVALUATION_REPORT.parent / filename
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Evaluation chart artifact is unavailable")
+        return FileResponse(path, media_type="image/png")
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, exc: RequestValidationError):

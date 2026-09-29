@@ -1,8 +1,9 @@
-"""Local dashboard application shell served by the existing FastAPI app."""
+"""Local dashboard shell, descriptive analytics, and saved model evaluation view."""
 
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,7 @@ from Src.dataset1_integration import load_dataset1_transaction_table
 from Src.ingestion import load_dataset2
 
 DATASET_IDS = ("dataset1", "dataset2")
+EVALUATION_REPORT = Path(__file__).resolve().parents[1] / "reports" / "evaluation" / "model_comparison.md"
 
 
 class DashboardDataError(RuntimeError):
@@ -75,6 +77,114 @@ def get_overview(dataset_id: str) -> dict:
 def clear_overview_cache() -> None:
     """Clear local dataset summaries (primarily useful after data refresh)."""
     get_overview.cache_clear()
+
+
+@lru_cache(maxsize=2)
+def get_performance(partition: str = "test") -> dict:
+    """Read the already-computed Dataset 2 evaluation report for one split."""
+    if partition not in {"validation", "test"}:
+        raise DashboardDataError("Partition must be validation or test")
+    try:
+        report = EVALUATION_REPORT.read_text(encoding="utf-8")
+    except OSError:
+        raise DashboardDataError("The validated model evaluation report is unavailable") from None
+
+    lines = report.splitlines()
+    target = _metadata_value(lines, "- Target:")
+    split_strategy = _metadata_value(lines, "- Split:")
+    section = f"## {partition.title()} results"
+    try:
+        section_start = next(index for index, line in enumerate(lines) if line.strip() == section)
+        table_header = next(index for index in range(section_start + 1, len(lines)) if lines[index].startswith("| Model |"))
+    except StopIteration:
+        raise DashboardDataError("The evaluation report is missing its expected model metrics table") from None
+
+    headers = _markdown_cells(lines[table_header])
+    expected_headers = ["Model", "Score type", "Decision rule", "Prevalence", "Alert rate", "Precision", "Recall", "F1", "ROC-AUC", "PR-AUC", "TN", "FP", "FN", "TP"]
+    if headers != expected_headers:
+        raise DashboardDataError("The evaluation report metrics table has an unexpected schema")
+
+    models = []
+    for line in lines[table_header + 2:]:
+        if not line.startswith("|"):
+            break
+        cells = _markdown_cells(line)
+        if len(cells) != len(expected_headers):
+            raise DashboardDataError("The evaluation report contains a malformed metrics row")
+        model, score_kind, decision_rule = cells[:3]
+        if score_kind not in {"probability", "anomaly"}:
+            raise DashboardDataError("The evaluation report contains an unsupported score kind")
+        prevalence = _report_percent(cells[3])
+        alert_rate = _report_percent(cells[4])
+        metrics = {name.lower().replace("-", "_"): _report_float(value) for name, value in zip(expected_headers[5:10], cells[5:10])}
+        counts = {name: _report_int(value) for name, value in zip(("tn", "fp", "fn", "tp"), cells[10:14])}
+        models.append({"name": model, "score_kind": score_kind, "decision_rule": decision_rule,
+                       "rows": sum(counts.values()), "prevalence": prevalence, "alert_rate": alert_rate,
+                       "metrics": metrics, "confusion_matrix": counts})
+    if not models:
+        raise DashboardDataError("The evaluation report contains no model rows")
+    return {
+        "dataset": "Credit Card Fraud Dataset",
+        "dataset1_note": "Dataset 1 is synthetic and has no trained fraud model; it is not combined with these results.",
+        "partition": partition,
+        "target": target,
+        "split_strategy": split_strategy,
+        "models": models,
+        "curves": {"roc": "/dashboard/performance/roc.png", "precision_recall": "/dashboard/performance/precision-recall.png"},
+        "limitations": [
+            "Metrics use the reported fixed decision rules; no threshold was tuned using the test partition.",
+            "Isolation Forest scores are anomaly rankings, not fraud probabilities; its labels use its native cutoff.",
+            "These results describe the saved evaluation snapshot, not a live retraining or monitoring job.",
+        ],
+    }
+
+
+def clear_performance_cache() -> None:
+    """Clear cached evaluation-report summaries after a local artifact refresh."""
+    get_performance.cache_clear()
+
+
+def _metadata_value(lines: list[str], prefix: str) -> str:
+    try:
+        return next(line[len(prefix):].strip().strip("`") for line in lines if line.startswith(prefix))
+    except StopIteration:
+        raise DashboardDataError(f"The evaluation report is missing {prefix.removesuffix(':')}") from None
+
+
+def _markdown_cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _report_float(value: str) -> float:
+    try:
+        number = float(value.rstrip("%"))
+    except ValueError:
+        raise DashboardDataError("The evaluation report contains a non-numeric metric") from None
+    if not np.isfinite(number) or not 0 <= number <= 1:
+        raise DashboardDataError("The evaluation report contains an out-of-range metric")
+    return number
+
+
+def _report_percent(value: str) -> float:
+    if not value.endswith("%"):
+        return _report_float(value)
+    try:
+        percent = float(value[:-1])
+    except ValueError:
+        raise DashboardDataError("The evaluation report contains an invalid percentage") from None
+    if not np.isfinite(percent) or not 0 <= percent <= 100:
+        raise DashboardDataError("The evaluation report contains an out-of-range percentage")
+    return percent / 100
+
+
+def _report_int(value: str) -> int:
+    try:
+        number = int(value.replace(",", ""))
+    except ValueError:
+        raise DashboardDataError("The evaluation report contains an invalid confusion count") from None
+    if number < 0:
+        raise DashboardDataError("The evaluation report contains a negative confusion count")
+    return number
 
 
 def _trend(frame: pd.DataFrame, target: pd.Series, column: str, kind: str) -> list[dict]:
@@ -202,10 +312,35 @@ _DASHBOARD_HTML = """<!doctype html>
     .dataset-note .notice-icon { color:var(--amber);background:#493b25; }
     .planned { margin-top:25px; }
     .planned h2 { font-size:15px;margin:0 0 12px; }
+    .performance-section { margin:34px 0 0;scroll-margin-top:20px; }
+    .section-head { display:flex;align-items:end;justify-content:space-between;gap:20px;margin-bottom:16px; }
+    .section-head h2 { margin:6px 0 0;font-size:23px;letter-spacing:-.5px; }
+    .partition-select { color:var(--muted);font-size:11px; }
+    .performance-note { background:#242b31;border-color:#3a4852; }
+    .model-cards { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px; }
+    .model-card { min-width:0;padding:17px;background:linear-gradient(145deg,#1a2631,#17222c);border:1px solid var(--line);border-radius:12px; }
+    .model-name { font-weight:700;font-size:14px; }
+    .model-meta { color:var(--muted);font-size:10px;margin-top:4px;line-height:1.5; }
+    .metric-grid { display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:15px 0; }
+    .metric { padding:9px 8px;background:#121c25;border-radius:8px;min-width:0; }
+    .metric-label { color:var(--muted);font-size:9px; }
+    .metric-value { margin-top:4px;font-weight:700;font-size:13px; }
+    .matrix-title { color:#bbc8cf;font-size:10px;margin-bottom:6px; }
+    .matrix { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;border:1px solid var(--line);border-radius:7px;overflow:hidden; }
+    .matrix div { background:#1c2933;padding:7px 5px;text-align:center;color:#dce5ea;font-size:10px; }
+    .matrix small { display:block;color:var(--muted);font-size:8px;margin-bottom:2px; }
+    .performance-charts { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px;margin-top:14px; }
+    .curve-card { min-width:0;padding:15px;background:linear-gradient(145deg,#1a2631,#17222c);border:1px solid var(--line);border-radius:12px; }
+    .curve-card h3 { margin:0;font-size:12px; }
+    .curve-card p { color:var(--muted);font-size:10px;margin:4px 0 10px; }
+    .curve-card img { display:block;width:100%;height:auto;border-radius:6px;background:#fff; }
+    .limitations { color:var(--muted);font-size:11px;line-height:1.6;padding-left:18px; }
+    .limitations li+li { margin-top:3px; }
     section { scroll-margin-top:20px; }
     @media(max-width:1000px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
     @media(max-width:850px){.app{grid-template-columns:76px minmax(0,1fr)}aside{padding:20px 10px}.brand{justify-content:center;padding:0 0 28px}.brand-name,.eyebrow,.nav-label,.side-note{display:none}nav a{justify-content:center;padding:12px 6px}.grid{grid-template-columns:1fr 1fr}}
     @media(max-width:650px){.charts{grid-template-columns:1fr}.chart-card.wide{grid-column:span 1}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:700px){.model-cards,.performance-charts{grid-template-columns:1fr}.section-head{align-items:flex-start;flex-direction:column}.metric-grid{gap:5px}.metric{padding:8px 5px}}
     @media(max-width:560px){.app{display:block}aside{border-right:0;border-bottom:1px solid var(--line);padding:10px 14px}.brand{display:none}nav{display:flex;overflow-x:auto}nav a{flex:0 0 auto;padding:9px 11px}.nav-label{display:inline}.hero{align-items:flex-start;flex-direction:column;padding-top:27px}.grid{grid-template-columns:1fr}.card{min-height:125px}.topline{padding-bottom:16px}.bottom{flex-direction:column}}
   </style>
 </head>
@@ -245,8 +380,20 @@ _DASHBOARD_HTML = """<!doctype html>
         <section class="chart-card wide" id="category-card"><div class="chart-title">Fraud by category</div><div class="chart-caption">Dataset 1 category labels; synthetic target correlations are not real-world evidence</div><div id="category-chart" class="bar-list"></div></section>
       </div>
       <div class="notice" id="error-state" role="alert" hidden><div class="notice-icon">!</div><div><strong>Dataset summary unavailable</strong><p id="error-message">Check local dataset configuration and try again.</p></div></div>
-      <div class="planned" id="performance"><h2>More analysis views</h2><div class="grid">
-        <section class="card"><div class="card-head">Model performance <span class="tag">PLANNED</span></div><p>Precision, recall, PR-AUC, ROC-AUC, threshold behavior, and confusion matrices for validated model results.</p><div class="placeholder" aria-hidden="true"></div></section>
+      <section class="performance-section" id="performance" aria-labelledby="performance-title">
+        <div class="section-head"><div><div class="kicker">Validated evaluation</div><h2 id="performance-title">Model performance</h2></div><label class="partition-select">Evaluation partition<select id="partition-select" aria-label="Evaluation partition"><option value="test">Test</option><option value="validation">Validation</option></select></label></div>
+        <div class="notice performance-note"><div class="notice-icon">i</div><div><strong>Dataset 2 evaluation only</strong><p id="split-description">Dataset 1 is synthetic and is intentionally not modeled. These metrics are not combined with Dataset 1.</p></div></div>
+        <div id="performance-state" class="state" role="status" aria-live="polite">Loading saved evaluation results…</div>
+        <div id="performance-results" hidden>
+          <div id="model-cards" class="model-cards"></div>
+          <div class="performance-charts">
+            <article class="curve-card"><h3>ROC curves</h3><p>Validation and test ranking curves from the saved evaluation.</p><img id="roc-curve" alt="ROC curves for each model on validation and test partitions"></article>
+            <article class="curve-card"><h3>Precision–recall curves</h3><p>Average precision (PR-AUC) is important for this highly imbalanced dataset.</p><img id="pr-curve" alt="Precision-recall curves for each model on validation and test partitions"></article>
+          </div>
+          <ul id="performance-limitations" class="limitations"></ul>
+        </div>
+      </section>
+      <div class="planned"><h2>More analysis views</h2><div class="grid">
         <section class="card" id="investigations"><div class="card-head">Transaction investigations <span class="tag">PLANNED</span></div><p>Submit a transaction, inspect its risk score, and review local SHAP contributors where supported.</p><div class="placeholder" aria-hidden="true"></div></section>
         <section class="card" id="data-quality"><div class="card-head">Data quality <span class="tag">PLANNED</span></div><p>Explore each dataset independently, with clear quality checks and the synthetic dataset labelled accordingly.</p><div class="placeholder" aria-hidden="true"></div></section>
       </div></div>
@@ -302,7 +449,29 @@ _DASHBOARD_HTML = """<!doctype html>
         document.querySelector('.crumb').innerHTML=`Workspace <span aria-hidden="true">/</span> ${data.dataset.label}`;
       }catch(err){state.hidden=true;error.hidden=false;document.getElementById('error-message').textContent=err.message}
     }
-    document.getElementById('dataset-select').addEventListener('change',loadOverview);window.addEventListener('resize',()=>{if(!document.getElementById('charts').hidden)loadOverview()});loadOverview();
+    const metricLabels=[['precision','Precision'],['recall','Recall'],['f1','F1'],['roc_auc','ROC-AUC'],['pr_auc','PR-AUC']];
+    function renderModels(models){
+      const root=document.getElementById('model-cards');root.replaceChildren();
+      models.forEach(model=>{
+        const card=document.createElement('article');card.className='model-card';
+        const header=document.createElement('div');header.className='card-head';const name=document.createElement('span');name.className='model-name';name.textContent=model.name;const type=document.createElement('span');type.className='tag';type.textContent=model.score_kind==='anomaly'?'ANOMALY SCORE':'PROBABILITY';header.append(name,type);
+        const rule=document.createElement('div');rule.className='model-meta';rule.textContent=`Fixed decision: ${model.decision_rule} · ${formatCount(model.rows)} rows · prevalence ${(model.prevalence*100).toFixed(3)}% · alert rate ${(model.alert_rate*100).toFixed(3)}%`;
+        const metrics=document.createElement('div');metrics.className='metric-grid';metricLabels.forEach(([key,label])=>{const item=document.createElement('div');item.className='metric';const metricName=document.createElement('div');metricName.className='metric-label';metricName.textContent=label;const value=document.createElement('div');value.className='metric-value';value.textContent=(model.metrics[key]*100).toFixed(2)+'%';item.append(metricName,value);metrics.append(item)});
+        const matrixTitle=document.createElement('div');matrixTitle.className='matrix-title';matrixTitle.textContent='Confusion matrix · actual × predicted';
+        const matrix=document.createElement('div');matrix.className='matrix';[['TN','True negative','tn'],['FP','False positive','fp'],['FN','False negative','fn'],['TP','True positive','tp']].forEach(([short,long,key])=>{const cell=document.createElement('div'),label=document.createElement('small');label.textContent=short;cell.setAttribute('aria-label',`${long}: ${formatCount(model.confusion_matrix[key])}`);cell.append(label,document.createTextNode(formatCount(model.confusion_matrix[key])));matrix.append(cell)});
+        card.append(header,rule,metrics,matrixTitle,matrix);root.append(card);
+      });
+    }
+    async function loadPerformance(){
+      const state=document.getElementById('performance-state'),results=document.getElementById('performance-results');state.hidden=false;state.textContent='Loading saved evaluation results…';results.hidden=true;
+      try{
+        const partition=document.getElementById('partition-select').value,response=await fetch(`/dashboard/performance?partition=${partition}`);if(!response.ok)throw new Error((await response.json()).detail||'Evaluation results unavailable');const data=await response.json();
+        document.getElementById('split-description').textContent=`${data.dataset1_note} Split: ${data.split_strategy}`;renderModels(data.models);document.getElementById('roc-curve').src=data.curves.roc;document.getElementById('pr-curve').src=data.curves.precision_recall;
+        const list=document.getElementById('performance-limitations');list.replaceChildren();data.limitations.forEach(note=>{const item=document.createElement('li');item.textContent=note;list.append(item)});
+        state.hidden=true;results.hidden=false;
+      }catch(err){state.textContent=err.message;}
+    }
+    document.getElementById('dataset-select').addEventListener('change',loadOverview);document.getElementById('partition-select').addEventListener('change',loadPerformance);window.addEventListener('resize',()=>{if(!document.getElementById('charts').hidden)loadOverview()});loadOverview();loadPerformance();
   </script>
 </body>
 </html>"""

@@ -16,7 +16,10 @@ def test_api_route_surface_contains_only_completed_endpoints():
     application = create_app()
     paths = {route.path for route in application.routes}
 
-    assert paths == {"/", "/dashboard/overview", "/health", "/predict", "/investigate"}
+    assert paths == {
+        "/", "/dashboard/overview", "/dashboard/performance",
+        "/dashboard/performance/{chart_name}.png", "/health", "/predict", "/investigate",
+    }
 
 
 def test_local_dashboard_shell_is_directly_accessible_without_login():
@@ -27,6 +30,8 @@ def test_local_dashboard_shell_is_directly_accessible_without_login():
     assert response.headers["content-type"].startswith("text/html")
     assert 'id="dataset-select"' in response.text
     assert 'id="kpi-total"' in response.text
+    assert 'id="partition-select"' in response.text
+    assert 'id="model-cards"' in response.text
     assert 'aria-label="Dashboard navigation"' in response.text
     assert "no sign-in required" in response.text.lower()
     assert 'type="password"' not in response.text.lower()
