@@ -1,8 +1,9 @@
 # Implementation Progress
 
-- **Completed:** Data pipeline, Dataset 1 integration, EDA, leakage-safe preprocessing, four Dataset 2 baselines, unified evaluation, typed risk scoring, safe artifact save/load, transaction inference, SHAP explainability, and transaction-level investigation.
-- **Current state:** `Src.investigation.TransactionInvestigator` combines validated raw input scoring and local SHAP explanation for one transaction. A caller-supplied case reference stays outside model inputs and logs. It verifies prediction/explanation score parity and returns source Time/Amount, model decision, and top contributors.
-- **Tests/checks:** 112 tests PASS, including supervised and anomaly investigation workflows, invalid case references/payloads, SHAP consistency, and all previous regression suites.
-- **Scientific/security constraints:** No actual fraud label is inferred as ground truth. Probability and anomaly semantics remain distinct. Explanations are local model explanations, not causal claims. The case reference is metadata only and the investigation is not persisted.
-- **Docs:** `INVESTIGATION.md`; implementation `Src/investigation.py`; unit/integration tests in `tests/unit/test_investigation.py` and `tests/integration/test_investigation_integration.py`.
-- **Next:** Begin API design/implementation one endpoint at a time; no HTTP endpoint is included in this checkpoint.
+- **Completed:** Data pipeline, Dataset 1 integration, EDA, leakage-safe preprocessing, four Dataset 2 baselines, unified evaluation, typed risk scoring, safe artifact save/load, transaction inference, SHAP explainability, transaction-level investigation, and the first HTTP endpoint (`GET /health`).
+- **Current state:** FastAPI exposes only `GET /health` as process liveness. It does not load a model or claim prediction readiness. Framework docs are disabled until API routes are built deliberately. Run with Uvicorn; `HTTPX` is a development-only test dependency.
+- **Tests/checks:** 115 tests PASS, including health response, unsupported method/path handling, route-surface check, and previous pipeline/model/inference/explainability/investigation regression suites. Live Uvicorn smoke check returned `{"status":"ok"}`.
+- **Environment warnings:** TestClient reports two transitive dependency deprecations from Starlette/AnyIO and python-multipart; no application warning or test failure.
+- **API constraints:** No prediction, investigation, or model-readiness endpoint is included yet. Health logs only a structured event and returns no sensitive data.
+- **Docs:** `API.md`; implementation `Src/api.py`; endpoint tests in `tests/api/test_health_endpoint.py`.
+- **Next:** Add one prediction endpoint using the validated inference layer.

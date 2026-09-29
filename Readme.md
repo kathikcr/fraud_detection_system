@@ -131,3 +131,7 @@ The fourth required model is `Src.isolation_forest_baseline.run_isolation_forest
 
 `Src.investigation.TransactionInvestigator` bundles inference and local explanation into a reviewer-facing record for one transaction. Since Dataset 2 has no transaction ID, callers provide an external case reference that stays separate from model inputs. See [INVESTIGATION.md](INVESTIGATION.md).
 
+## HTTP API
+
+The incremental API currently exposes only `GET /health` as a process liveness check. Start it locally with `python -m uvicorn Src.api:app --host 127.0.0.1 --port 8000`. See [API.md](API.md).
+
