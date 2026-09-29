@@ -115,3 +115,7 @@ The fourth required model is `Src.isolation_forest_baseline.run_isolation_forest
 
 `Src.risk_scoring.build_risk_scorer()` wraps an already-fitted model to score one or more preprocessed transaction rows. Supervised scores are marked uncalibrated model probabilities scaled to 0–100; Isolation Forest uses a training-feature reference percentile, never a fraud probability. Default low/medium/high bands are display-only. See [RISK_SCORING.md](RISK_SCORING.md) for the distinctions and example.
 
+## Model artifacts
+
+`Src.artifacts.save_model_artifact()` and `load_model_artifact()` persist and restore supported fitted models with their training-fitted preprocessor and risk-scoring metadata. Bundles use skops serialization, checksums, a fixed model-family allowlist, and runtime/feature-order validation. Each output directory is immutable; write a new versioned directory for a changed model. See [ARTIFACTS.md](ARTIFACTS.md) for the format and usage.
+
