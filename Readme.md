@@ -121,7 +121,7 @@ The fourth required model is `Src.isolation_forest_baseline.run_isolation_forest
 
 ## Raw transaction inference
 
-`Src.inference.FraudInference` validates raw Dataset 2 transaction objects, transforms them with the loaded artifact's preprocessor, and returns a typed risk score and model alert decision for single transactions or batches. This is a library layer; no HTTP endpoint is included yet. See [INFERENCE.md](INFERENCE.md) for the input schema and behavior.
+`Src.inference.FraudInference` validates raw Dataset 2 transaction objects, transforms them with the loaded artifact's preprocessor, and returns a typed risk score and model alert decision for single transactions or batches. The local HTTP API exposes prediction and investigation routes; see [INFERENCE.md](INFERENCE.md) and [API.md](API.md) for details.
 
 ## Explainability
 
@@ -133,5 +133,5 @@ The fourth required model is `Src.isolation_forest_baseline.run_isolation_forest
 
 ## HTTP API
 
-The incremental API exposes `GET /health`, `POST /predict`, and `POST /investigate` for one validated Dataset 2 case with local SHAP evidence. Configure `FRAUD_MODEL_ARTIFACT_DIR` and, for investigations, `FRAUD_SHAP_BACKGROUND_PATH` before running locally with `python -m uvicorn Src.api:app --host 127.0.0.1 --port 8000`. Authentication/rate limiting remain separate work. See [API.md](API.md).
+The local API exposes `GET /health`, `POST /predict`, and `POST /investigate` for one validated Dataset 2 case with local SHAP evidence. Configure `FRAUD_MODEL_ARTIFACT_DIR` and, for investigations, `FRAUD_SHAP_BACKGROUND_PATH` before running locally with `python -m uvicorn Src.api:app --host 127.0.0.1 --port 8000`. The application is directly accessible for local use; authentication and deployment are out of scope. See [API.md](API.md).
 

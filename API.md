@@ -31,6 +31,6 @@ $env:FRAUD_SHAP_BACKGROUND_PATH = "<path-to-training-background.csv>"
 python -m uvicorn Src.api:app --host 127.0.0.1 --port 8000
 ```
 
-Then request `http://127.0.0.1:8000/health`, post one transaction to `http://127.0.0.1:8000/predict`, or submit a case to `http://127.0.0.1:8000/investigate`. The route surface is intentionally limited to these endpoints; generated API docs are disabled until the API feature set is further along. Authentication and rate limiting are not implemented yet, so keep these endpoints bound to a trusted local network for now.
+Then request `http://127.0.0.1:8000/health`, post one transaction to `http://127.0.0.1:8000/predict`, or submit a case to `http://127.0.0.1:8000/investigate`. The route surface is intentionally limited to these endpoints; generated API docs are disabled until the API feature set is further along. This project is for local development, demonstration, portfolio presentation, and academic use. User authentication, accounts, sessions, access control, rate limiting, and deployment infrastructure are outside the current scope; the local dashboard should be directly accessible.
 
 The API uses FastAPI and Uvicorn; route tests use FastAPI's `TestClient` with HTTPX. See `tests/api/`.
