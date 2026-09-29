@@ -13,13 +13,18 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, StrictFloat, StrictInt, model_validator
+import numpy as np
+import pandas as pd
+from pydantic import BaseModel, ConfigDict, StrictFloat, StrictInt, StrictStr, model_validator
 
-from Src.artifacts import load_model_artifact
+from Src.artifacts import LoadedArtifact, load_model_artifact
 from Src.inference import FraudInference, InferenceError
+from Src.investigation import InvestigationError, TransactionInvestigator
 
 LOGGER = logging.getLogger(__name__)
 StrictNumber = StrictFloat | StrictInt
+MAX_BACKGROUND_CSV_BYTES = 1_000_000
+MAX_BACKGROUND_ROWS = 100
 
 
 class HealthResponse(BaseModel):
@@ -94,12 +99,57 @@ class PredictionResponse(BaseModel):
     inference_ms: float
 
 
+class InvestigationRequest(BaseModel):
+    """Case reference kept separate from the Dataset 2 feature object."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    transaction_id: StrictStr | StrictInt
+    transaction: PredictionRequest
+
+    @model_validator(mode="after")
+    def validate_transaction_id(self):
+        value = self.transaction_id
+        if isinstance(value, str) and (not value.strip() or len(value.strip()) > 128):
+            raise ValueError("transaction_id must contain 1 to 128 characters")
+        return self
+
+
+class FeatureContributionResponse(BaseModel):
+    feature_name: str
+    feature_value: float
+    shap_value: float
+
+
+class ExplanationResponse(BaseModel):
+    model_name: str
+    score_kind: Literal["probability", "anomaly"]
+    score_basis: str
+    score: float
+    baseline_score: float
+    output_scale: str
+    attributions: list[FeatureContributionResponse]
+    max_evals: int
+
+
+class InvestigationResponse(BaseModel):
+    transaction_id: str
+    time: float
+    amount: float
+    prediction: PredictionResponse
+    explanation: ExplanationResponse
+    top_contributors: list[FeatureContributionResponse]
+    investigation_ms: float
+
+
 def create_app(
     *,
     inference_service: FraudInference | None = None,
+    investigator_service: TransactionInvestigator | None = None,
     artifact_dir: str | Path | None = None,
+    background_path: str | Path | None = None,
 ) -> FastAPI:
-    """Construct API routes; load a configured artifact once on first prediction.
+    """Construct API routes; load configured resources on first scoring request.
 
     `FRAUD_MODEL_ARTIFACT_DIR` is the runtime configuration key. The model
     path is never accepted from an HTTP request and no local absolute path is
@@ -107,8 +157,18 @@ def create_app(
     """
     if inference_service is not None and artifact_dir is not None:
         raise ValueError("Provide either inference_service or artifact_dir, not both")
+    if inference_service is not None and background_path is not None:
+        raise ValueError("Provide either inference_service or background_path, not both")
+    if inference_service is not None and investigator_service is not None:
+        raise ValueError("Provide at most one injected model service")
     if inference_service is not None and not isinstance(inference_service, FraudInference):
         raise TypeError("inference_service must be a FraudInference instance")
+    if investigator_service is not None and artifact_dir is not None:
+        raise ValueError("Provide either investigator_service or artifact_dir, not both")
+    if investigator_service is not None and not isinstance(investigator_service, TransactionInvestigator):
+        raise TypeError("investigator_service must be a TransactionInvestigator instance")
+    if background_path is not None and investigator_service is not None:
+        raise ValueError("Provide either investigator_service or background_path, not both")
 
     application = FastAPI(
         title="Fraud Detection Analytics API",
@@ -119,8 +179,11 @@ def create_app(
         redoc_url=None,
     )
     application.state.inference_service = inference_service
+    application.state.investigator_service = investigator_service
+    application.state.loaded_artifact = None
     application.state.artifact_dir = str(artifact_dir) if artifact_dir is not None else None
-    application.state.inference_lock = threading.Lock()
+    application.state.background_path = str(background_path) if background_path is not None else None
+    application.state.inference_lock = threading.RLock()
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, exc: RequestValidationError):
@@ -160,27 +223,33 @@ def create_app(
             raise HTTPException(status_code=500, detail="Prediction failed") from exc
         return PredictionResponse(**asdict(result))
 
+    @application.post("/investigate", response_model=InvestigationResponse, tags=["investigation"])
+    def investigate(payload: InvestigationRequest, request: Request) -> InvestigationResponse:
+        """Return one case's prediction and local feature attributions."""
+        service = _get_investigator_service(request)
+        try:
+            result = service.investigate(payload.transaction_id, payload.transaction.model_dump())
+        except InvestigationError as exc:
+            LOGGER.exception(
+                "api_investigation_failed",
+                extra={"event_type": "api_investigation_failed", "model": "configured",
+                       "error_type": type(exc).__name__},
+            )
+            raise HTTPException(status_code=500, detail="Investigation failed") from exc
+        return InvestigationResponse(**asdict(result))
+
     return application
 
 
 def _get_inference_service(request: Request) -> FraudInference:
     """Resolve and cache the configured model service outside request data."""
     application = request.app
-    service = application.state.inference_service
-    if service is not None:
-        return service
     with application.state.inference_lock:
         service = application.state.inference_service
         if service is not None:
             return service
-        configured_dir = application.state.artifact_dir or os.getenv("FRAUD_MODEL_ARTIFACT_DIR")
-        if not configured_dir:
-            LOGGER.error("api_prediction_unavailable", extra={
-                "event_type": "api_prediction_unavailable", "reason": "artifact_not_configured"
-            })
-            raise HTTPException(status_code=503, detail="Prediction service is unavailable")
         try:
-            artifact = load_model_artifact(configured_dir)
+            artifact = _get_loaded_artifact_locked(application)
             service = FraudInference(artifact)
         except Exception as exc:
             LOGGER.error("api_model_load_failed", extra={
@@ -189,6 +258,62 @@ def _get_inference_service(request: Request) -> FraudInference:
             raise HTTPException(status_code=503, detail="Prediction service is unavailable") from exc
         application.state.inference_service = service
         return service
+
+
+def _get_investigator_service(request: Request) -> TransactionInvestigator:
+    """Resolve and cache the artifact plus training-only SHAP background."""
+    application = request.app
+    with application.state.inference_lock:
+        service = application.state.investigator_service
+        if service is not None:
+            return service
+        try:
+            artifact = _get_loaded_artifact_locked(application)
+            configured_background = (
+                application.state.background_path or os.getenv("FRAUD_SHAP_BACKGROUND_PATH")
+            )
+            if not configured_background:
+                raise FileNotFoundError("training background is not configured")
+            background = _read_training_background(configured_background)
+            service = TransactionInvestigator(artifact, background)
+        except Exception as exc:
+            LOGGER.error("api_investigator_unavailable", extra={
+                "event_type": "api_investigator_unavailable", "error_type": type(exc).__name__
+            })
+            raise HTTPException(status_code=503, detail="Investigation service is unavailable") from exc
+        application.state.investigator_service = service
+        return service
+
+
+def _get_loaded_artifact_locked(application) -> LoadedArtifact:
+    artifact = application.state.loaded_artifact
+    if artifact is not None:
+        return artifact
+    configured_dir = application.state.artifact_dir or os.getenv("FRAUD_MODEL_ARTIFACT_DIR")
+    if not configured_dir:
+        LOGGER.error("api_model_not_configured", extra={
+            "event_type": "api_model_not_configured", "reason": "artifact_not_configured"
+        })
+        raise FileNotFoundError("model artifact is not configured")
+    artifact = load_model_artifact(configured_dir)
+    application.state.loaded_artifact = artifact
+    return artifact
+
+
+def _read_training_background(path: str | Path) -> pd.DataFrame:
+    source = Path(path).expanduser()
+    if source.is_symlink():
+        raise ValueError("SHAP background file cannot be a symlink")
+    source = source.resolve(strict=True)
+    if not source.is_file() or source.stat().st_size > MAX_BACKGROUND_CSV_BYTES:
+        raise ValueError("SHAP background file is missing or exceeds the size limit")
+    background = pd.read_csv(source)
+    if background.empty or len(background) > MAX_BACKGROUND_ROWS:
+        raise ValueError(f"SHAP background must contain 1 to {MAX_BACKGROUND_ROWS} rows")
+    values = background.to_numpy(dtype=float)
+    if not np.isfinite(values).all():
+        raise ValueError("SHAP background values must be finite")
+    return background
 
 
 app = create_app()
