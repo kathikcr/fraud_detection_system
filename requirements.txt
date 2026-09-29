@@ -1,3 +1,4 @@
 kagglehub==1.0.2
 pandas==3.0.5
 matplotlib==3.10.3
+scikit-learn==1.9.0

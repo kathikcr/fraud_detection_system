@@ -93,3 +93,7 @@ artifacts = generate_eda_reports()
 
 Artifacts are written to `reports/eda/`. Dataset 1 is explicitly treated as synthetic. Dataset 2's severe class imbalance, amount/time distributions, and anonymized PCA component summaries are described independently. The EDA does not train models or claim PCA mean differences are feature importance.
 
+## Leakage-safe preprocessing
+
+`Src.preprocessing.prepare_dataset1()` and `prepare_dataset2()` create independent train/validation/test partitions and fit imputers/scalers on training data only. Dataset 1 uses a reproducible stratified split and excludes IDs and fraud-derived indicators. Dataset 2 uses forward chronological splits with tied timestamps kept together. See [PREPROCESSING.md](PREPROCESSING.md) for feature exclusions, split reasoning, and measured partition counts. No resampling or model training is performed.
+

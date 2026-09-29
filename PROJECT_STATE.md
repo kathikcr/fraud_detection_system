@@ -1,9 +1,9 @@
-# Project State (EDA Complete)
+# Project State (Leakage-Safe Preprocessing Complete)
 
-- **Stack:** Python and pandas data pipeline; no application framework is configured. Reports and charts use Matplotlib.
-- **Datasets:** Dataset 1 is synthetic and its generated fraud/suspicious flags are random. Dataset 2 is the Kaggle credit-card benchmark fetched or reused through KaggleHub. Raw CSVs are ignored by Git.
-- **Validated modules:** `Src/dataset2.py` resolves Dataset 2; `Src/ingestion.py` loads and validates both datasets independently; `Src/dataset1_integration.py` verifies Dataset 1 relationships and creates a transaction-grain view without customer/account profile fields; `Src/eda.py` produces separate descriptive EDA reports and charts.
-- **EDA outputs:** `reports/eda/dataset1_eda.md`, `dataset2_eda.md`, `dataset1_overview.png`, `dataset2_overview.png`, and `dataset2_pca_components.png`. Dataset 1 results are synthetic-only. Dataset 2 summaries include severe imbalance, amount/time distributions, anonymized PCA component summaries, and duplicate counts. No model was trained.
-- **Dataset observations:** Dataset 1 has 1,000 transactions, 45 generated positive labels, and no missing or exact duplicate rows. The observed Dataset 2 CSV has 284,807 rows, 492 positive labels, no missing values, and 1,081 exact duplicate rows; duplicates remain unchanged.
-- **Tests:** 38 tests passed, including EDA unit and report-generation tests. The suite uses small generated fixtures and does not require raw datasets.
-- **Next feature:** Leakage-safe preprocessing design, kept separate by dataset and preserving the synthetic-data limitation. Do not train models until the preprocessing phase is validated.
+- **Stack:** Python, pandas, scikit-learn, and Matplotlib; no application framework is configured.
+- **Datasets:** Dataset 1 is synthetic with independently randomized fraud/suspicious labels. Dataset 2 is the Kaggle credit-card benchmark fetched or reused through KaggleHub. Raw CSVs are ignored by Git.
+- **Validated modules:** Dataset 2 acquisition (`Src/dataset2.py`); independent validated loaders (`Src/ingestion.py`); safe Dataset 1 joins (`Src/dataset1_integration.py`); separate descriptive EDA (`Src/eda.py`); independent leakage-safe partitions and train-only transformations (`Src/preprocessing.py`).
+- **Preprocessing:** Dataset 1 uses seeded stratified 70/15/15 partitions and excludes target-derived indicators, identifiers, merchant descriptors, and PII. Dataset 2 uses forward chronological partitions with tied `Time` values grouped, and records each partition's class balance. Imputers/scalers fit on training rows only. No resampling or models yet; see `PREPROCESSING.md`.
+- **Observed Dataset 2 split:** 199,364 / 42,722 / 42,721 rows, containing 384 / 56 / 52 fraud cases, respectively. Train time ends at 132,928; validation spans 132,929–151,328; test starts at 151,329. Exact duplicate rows remain preserved.
+- **Tests:** 46 tests pass. The preprocessing module was also manually run against both locally available datasets.
+- **Next feature:** Logistic Regression baseline, using prepared Dataset 2 splits. Dataset 1 remains synthetic demonstration data.
