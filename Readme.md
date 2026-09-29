@@ -127,3 +127,7 @@ The fourth required model is `Src.isolation_forest_baseline.run_isolation_forest
 
 `Src.explainability.FraudExplainer` provides local SHAP attributions for a model score using a bounded, deterministic sample of training-only transformed features. It supports all four saved model families and preserves probability/anomaly score semantics. These are model explanations, not causal claims; `V1`–`V28` remain anonymized components. See [EXPLAINABILITY.md](EXPLAINABILITY.md).
 
+## Transaction investigation
+
+`Src.investigation.TransactionInvestigator` bundles inference and local explanation into a reviewer-facing record for one transaction. Since Dataset 2 has no transaction ID, callers provide an external case reference that stays separate from model inputs. See [INVESTIGATION.md](INVESTIGATION.md).
+
