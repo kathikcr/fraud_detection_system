@@ -14,4 +14,4 @@ The observed CSV is ordered non-decreasing by `Time`, so the pipeline uses forwa
 
 On the observed local snapshot, partition sizes were 199,364 / 42,722 / 42,721 (train/validation/test), with fraud counts 384 / 56 / 52. The time cut points were train through 132,928, validation 132,929–151,328, and test from 151,329 onward. Exact duplicate source rows are retained; tied timestamps are not divided. These values describe the local snapshot and are recomputed from the data when preparing splits.
 
-No oversampling or class rebalancing occurs here. If evaluated later, any resampling must be restricted to training data and the validation/test partitions left unchanged. No model has been trained in this phase.
+No oversampling or class rebalancing occurs in preprocessing. If evaluated later, any resampling must be restricted to training data and the validation/test partitions left unchanged. See the later Logistic Regression baseline report for results measured on these partitions.

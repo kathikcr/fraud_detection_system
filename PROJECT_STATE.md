@@ -1,9 +1,10 @@
-# Project State (Leakage-Safe Preprocessing Complete)
+# Project State (Logistic Regression Baseline Complete)
 
-- **Stack:** Python, pandas, scikit-learn, and Matplotlib; no application framework is configured.
-- **Datasets:** Dataset 1 is synthetic with independently randomized fraud/suspicious labels. Dataset 2 is the Kaggle credit-card benchmark fetched or reused through KaggleHub. Raw CSVs are ignored by Git.
-- **Validated modules:** Dataset 2 acquisition (`Src/dataset2.py`); independent validated loaders (`Src/ingestion.py`); safe Dataset 1 joins (`Src/dataset1_integration.py`); separate descriptive EDA (`Src/eda.py`); independent leakage-safe partitions and train-only transformations (`Src/preprocessing.py`).
-- **Preprocessing:** Dataset 1 uses seeded stratified 70/15/15 partitions and excludes target-derived indicators, identifiers, merchant descriptors, and PII. Dataset 2 uses forward chronological partitions with tied `Time` values grouped, and records each partition's class balance. Imputers/scalers fit on training rows only. No resampling or models yet; see `PREPROCESSING.md`.
-- **Observed Dataset 2 split:** 199,364 / 42,722 / 42,721 rows, containing 384 / 56 / 52 fraud cases, respectively. Train time ends at 132,928; validation spans 132,929–151,328; test starts at 151,329. Exact duplicate rows remain preserved.
-- **Tests:** 46 tests pass. The preprocessing module was also manually run against both locally available datasets.
-- **Next feature:** Logistic Regression baseline, using prepared Dataset 2 splits. Dataset 1 remains synthetic demonstration data.
+- **Stack:** Python, pandas, scikit-learn, Matplotlib; no app framework.
+- **Datasets:** Dataset 1 is synthetic and its fraud target is randomized. Dataset 2 is the Kaggle credit-card benchmark. Raw CSVs are excluded from Git.
+- **Pipelines:** Independent validated loaders, safe Dataset 1 integration, separate EDA, and train-only leakage-safe preprocessing. Dataset 2 uses chronological 70/15/15 splits with equal timestamps grouped.
+- **Baseline:** A single Dataset 2 Logistic Regression model uses class-balanced weights, `lbfgs`, max_iter 2,000, seed 42, and a fixed 0.5 threshold. It fits only the training partition; validation/test report precision, recall, F1, ROC-AUC, PR-AUC, and confusion counts. No resampling or threshold tuning.
+- **Observed test result:** Precision 0.0570, recall 0.8269, F1 0.1067, ROC-AUC 0.9772, PR-AUC 0.7069; 711 false positives and 9 false negatives. High false-positive burden means this default threshold is only a baseline.
+- **Report:** `reports/models/logistic_regression_baseline.md` contains validation and test metrics for the local snapshot. Dataset 1 is not modeled.
+- **Tests:** 50 tests pass; local full Dataset 2 baseline completed without convergence warnings.
+- **Next feature:** Random Forest as the next isolated model increment.
