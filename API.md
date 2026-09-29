@@ -1,9 +1,10 @@
 # HTTP API (incremental)
 
-The API currently exposes two routes:
+The local app currently serves a dashboard shell and three API routes:
 
 | Route | Purpose | Success response |
 |---|---|---|
+| `GET /` | Open the login-free local dashboard shell | `200` HTML page |
 | `GET /health` | Confirm the API process can serve requests | `200 {"status":"ok"}` |
 | `POST /predict` | Score one raw Dataset 2 transaction | `200` prediction response |
 | `POST /investigate` | Return one case's prediction and local SHAP explanation | `200` investigation response |
@@ -31,6 +32,6 @@ $env:FRAUD_SHAP_BACKGROUND_PATH = "<path-to-training-background.csv>"
 python -m uvicorn Src.api:app --host 127.0.0.1 --port 8000
 ```
 
-Then request `http://127.0.0.1:8000/health`, post one transaction to `http://127.0.0.1:8000/predict`, or submit a case to `http://127.0.0.1:8000/investigate`. The route surface is intentionally limited to these endpoints; generated API docs are disabled until the API feature set is further along. This project is for local development, demonstration, portfolio presentation, and academic use. User authentication, accounts, sessions, access control, rate limiting, and deployment infrastructure are outside the current scope; the local dashboard should be directly accessible.
+Then open `http://127.0.0.1:8000/` for the dashboard shell, request `http://127.0.0.1:8000/health`, post one transaction to `http://127.0.0.1:8000/predict`, or submit a case to `http://127.0.0.1:8000/investigate`. Generated API docs are disabled. This project is for local development, demonstration, portfolio presentation, and academic use. User authentication, accounts, sessions, access control, rate limiting, and deployment infrastructure are outside the current scope; the local dashboard is directly accessible.
 
 The API uses FastAPI and Uvicorn; route tests use FastAPI's `TestClient` with HTTPX. See `tests/api/`.

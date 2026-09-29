@@ -16,7 +16,19 @@ def test_api_route_surface_contains_only_completed_endpoints():
     application = create_app()
     paths = {route.path for route in application.routes}
 
-    assert paths == {"/health", "/predict", "/investigate"}
+    assert paths == {"/", "/health", "/predict", "/investigate"}
+
+
+def test_local_dashboard_shell_is_directly_accessible_without_login():
+    with TestClient(create_app()) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "Dashboard foundation is ready" in response.text
+    assert 'aria-label="Dashboard navigation"' in response.text
+    assert "no sign-in required" in response.text.lower()
+    assert 'type="password"' not in response.text.lower()
 
 
 def test_health_endpoint_rejects_other_methods_and_unknown_paths():

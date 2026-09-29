@@ -12,7 +12,8 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from Src.dashboard import dashboard_shell
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, StrictFloat, StrictInt, StrictStr, model_validator
@@ -184,6 +185,11 @@ def create_app(
     application.state.artifact_dir = str(artifact_dir) if artifact_dir is not None else None
     application.state.background_path = str(background_path) if background_path is not None else None
     application.state.inference_lock = threading.RLock()
+
+    @application.get("/", response_class=HTMLResponse, include_in_schema=False)
+    def dashboard():
+        """Serve the directly accessible local dashboard shell."""
+        return dashboard_shell()
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, exc: RequestValidationError):
